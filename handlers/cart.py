@@ -1,9 +1,13 @@
 from aiogram import Router, types
 from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+
+# Импортируем корзину из products
 from handlers.products import user_carts
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 async def show_cart_handler(message: types.Message, user_id: int = None):
@@ -13,17 +17,17 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
     cart = user_carts.get(user_id, [])
 
     if not cart:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🛍 В каталог", callback_data="back_to_products")
-        builder.button(text="🏠 Главная", callback_data="main_menu")
-        builder.adjust(1)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
+            [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+        ])
 
         text = "🛒 <b>Ваша корзина пуста</b>\n\nДобавьте товары из каталога!"
 
         if hasattr(message, 'edit_text'):
-            await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         else:
-            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
         return
 
     # Подсчитываем
@@ -36,17 +40,19 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
 
     cart_text += f"\n<b>Товаров: {len(cart)}</b>\n<b>Итого: {total}₽</b>"
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🗑 Очистить", callback_data="clear_cart")
-    builder.button(text="✅ Оформить", callback_data="create_order")
-    builder.button(text="🛍 В каталог", callback_data="back_to_products")
-    builder.button(text="🏠 Главная", callback_data="main_menu")
-    builder.adjust(2)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Очистить", callback_data="clear")],
+        [InlineKeyboardButton(text="✅ Оформить", callback_data="order")],
+        [
+            InlineKeyboardButton(text="🛍 В каталог", callback_data="back"),
+            InlineKeyboardButton(text="🏠 Главная", callback_data="home")
+        ]
+    ])
 
     if hasattr(message, 'edit_text'):
-        await message.edit_text(cart_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await message.edit_text(cart_text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await message.answer(cart_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await message.answer(cart_text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.message(Command("cart"))
@@ -54,25 +60,31 @@ async def cmd_cart(message: types.Message):
     await show_cart_handler(message)
 
 
-@router.callback_query(lambda c: c.data == "clear_cart")
+@router.callback_query(lambda c: c.data == "cart")
+async def callback_show_cart(callback: types.CallbackQuery):
+    await show_cart_handler(callback.message, callback.from_user.id)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "clear")
 async def clear_cart(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     user_carts[user_id] = []
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🛍 В каталог", callback_data="back_to_products")
-    builder.button(text="🏠 Главная", callback_data="main_menu")
-    builder.adjust(1)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
+        [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+    ])
 
     await callback.message.edit_text(
         "🗑 <b>Корзина очищена!</b>",
-        reply_markup=builder.as_markup(),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
     await callback.answer("Корзина очищена!")
 
 
-@router.callback_query(lambda c: c.data == "create_order")
+@router.callback_query(lambda c: c.data == "order")
 async def create_order(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     cart = user_carts.get(user_id, [])
@@ -83,10 +95,10 @@ async def create_order(callback: types.CallbackQuery):
 
     total = sum(item['price'] for item in cart)
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Подтвердить", callback_data="confirm_order")
-    builder.button(text="🔙 Назад", callback_data="cart")
-    builder.adjust(1)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cart")]
+    ])
 
     await callback.message.edit_text(
         f"✅ <b>Оформление заказа</b>\n\n"
@@ -94,13 +106,13 @@ async def create_order(callback: types.CallbackQuery):
         f"Сумма: {total}₽\n\n"
         f"Для оформления нажмите 'Подтвердить'.\n"
         f"Администратор свяжется с вами в ближайшее время.",
-        reply_markup=builder.as_markup(),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "confirm_order")
+@router.callback_query(lambda c: c.data == "confirm")
 async def confirm_order(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     cart = user_carts.get(user_id, [])
@@ -114,10 +126,10 @@ async def confirm_order(callback: types.CallbackQuery):
     # Очищаем корзину
     user_carts[user_id] = []
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🛍 В каталог", callback_data="back_to_products")
-    builder.button(text="🏠 Главная", callback_data="main_menu")
-    builder.adjust(1)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
+        [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+    ])
 
     await callback.message.edit_text(
         f"🎉 <b>Заказ оформлен!</b>\n\n"
@@ -126,7 +138,7 @@ async def confirm_order(callback: types.CallbackQuery):
         f"Товаров: {len(cart)}\n\n"
         f"Администратор свяжется с вами для уточнения деталей.\n"
         f"Спасибо за покупку! 🛍",
-        reply_markup=builder.as_markup(),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
     await callback.answer("Заказ оформлен! Администратор свяжется с вами.", show_alert=True)

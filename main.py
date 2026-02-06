@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from aiogram import Bot, Dispatcher, types  # Убрали F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -46,7 +46,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            self.wfile.write(b'Shop Bot is running')  # Убрали смайлик
+            self.wfile.write(b'Shop Bot is running')
         else:
             self.send_response(404)
             self.end_headers()
@@ -62,6 +62,24 @@ def run_http_server():
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     logger.info(f"🌐 HTTP server started on port {port}")
     server.serve_forever()
+
+
+# ================== ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ДЛЯ ОТЛАДКИ ==================
+async def setup_global_handlers(dp: Dispatcher):
+    """Настройка глобальных обработчиков для отладки"""
+
+    # Обработчик всех callback-запросов (для отладки)
+    @dp.callback_query()
+    async def debug_all_callbacks(callback: types.CallbackQuery):
+        """Логируем все callback-запросы"""
+        logger.info(f"📨 DEBUG Callback received: {callback.data} from user {callback.from_user.id}")
+        # Не прерываем цепочку обработки, поэтому не вызываем callback.answer() здесь
+
+    # Обработчик всех сообщений
+    @dp.message()
+    async def debug_all_messages(message: types.Message):
+        """Логируем все сообщения"""
+        logger.info(f"📝 DEBUG Message received: {message.text} from user {message.from_user.id}")
 
 
 # ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
@@ -85,6 +103,9 @@ async def main():
         dp.include_router(products_router)
         dp.include_router(cart_router)
         dp.include_router(order_router)
+
+        # Настраиваем глобальные обработчики для отладки
+        await setup_global_handlers(dp)
 
         # ================== БАЗОВЫЕ КОМАНДЫ ==================
         @dp.message(Command("start"))
@@ -112,25 +133,6 @@ async def main():
                 parse_mode="HTML"
             )
 
-        # ================== ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ ==================
-        @dp.message()
-        async def handle_unknown_message(message: types.Message):
-            """Обработка любых сообщений не-команд"""
-            if message.text and not message.text.startswith('/'):
-                await message.answer(
-                    "🤖 <b>Я понимаю только команды:</b>\n\n"
-                    "Используйте /start для начала работы\n"
-                    "Или /help для списка команд",
-                    parse_mode="HTML"
-                )
-
-        # ================== ОБРАБОТКА НЕИЗВЕСТНЫХ CALLBACK-КНОПОК ==================
-        @dp.callback_query()
-        async def handle_unknown_callback(callback: types.CallbackQuery):
-            """Обработка любых callback-запросов"""
-            await callback.answer("🔄 Эта кнопка больше не активна. Обновите меню /start")
-
-        # ================== ЗАПУСК БОТА ==================
         # Проверяем подключение
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
