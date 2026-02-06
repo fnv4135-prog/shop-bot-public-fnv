@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Импортируем наше временное хранилище
-from handlers.products import user_carts, products
+from handlers.products import user_carts  # Убрали products
 
 router = Router()
 

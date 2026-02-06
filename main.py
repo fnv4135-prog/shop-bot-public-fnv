@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types  # Убрали F
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -46,7 +46,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            self.wfile.write(b'🛍 Shop Bot is running')
+            self.wfile.write(b'Shop Bot is running')  # Убрали смайлик
         else:
             self.send_response(404)
             self.end_headers()
