@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
@@ -24,94 +25,127 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Health check сервер для Render
+# ========== ЗАЩИТА ОТ МНОЖЕСТВЕННОГО ЗАПУСКА ==========
+def check_single_instance():
+    """Проверка, что бот не запущен уже"""
+    import socket
+    try:
+        # Пытаемся занять порт 9999
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', 9999))
+        sock.listen(5)
+        return True  # Успешно - значит первый экземпляр
+    except socket.error:
+        logger.error("Бот уже запущен! Закройте все другие экземпляры.")
+        return False  # Порт занят - значит уже запущен
+
+
+# Проверяем перед запуском
+if not check_single_instance():
+    sys.exit(1)
+
+
+# ======================================================
+
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/health' or self.path == '/':
+        if self.path in ['/', '/health']:
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            self.wfile.write(b'Bot is alive')
+            self.wfile.write(b'Bot is running')
         else:
             self.send_response(404)
             self.end_headers()
 
     def log_message(self, format, *args):
-        # Не логируем health check запросы
         pass
 
 
-async def start_bot():
-    """Основная функция запуска бота"""
-    try:
-        bot_token = os.getenv('BOT_TOKEN')
-        if not bot_token:
-            logger.error("BOT_TOKEN not found in environment variables!")
-            sys.exit(1)
-
-        bot = Bot(token=bot_token)
-
-        # Проверяем, что бот доступен
-        me = await bot.get_me()
-        logger.info(f"Bot @{me.username} started successfully")
-
-        # Создаем диспетчер
-        storage = MemoryStorage()
-        dp = Dispatcher(storage=storage)
-
-        # Базовые команды
-        @dp.message(Command("start"))
-        async def cmd_start(message: types.Message):
-            await message.answer("👋 Добро пожаловать в магазин!\nИспользуйте /menu для просмотра товаров.")
-
-        @dp.message(Command("menu"))
-        async def cmd_menu(message: types.Message):
-            await message.answer("📋 Меню товаров доступно через кнопки ниже.")
-
-        @dp.message(Command("help"))
-        async def cmd_help(message: types.Message):
-            await message.answer("ℹ️ Помощь:\n/menu - товары\n/cart - корзина\n/order - заказ")
-
-        # Подключаем роутеры
-        dp.include_router(products_router)
-        dp.include_router(cart_router)
-        dp.include_router(order_router)
-
-        # Удаляем вебхук если был (на всякий случай)
-        await bot.delete_webhook(drop_pending_updates=True)
-
-        logger.info("Starting polling...")
-        await dp.start_polling(bot)
-
-    except Exception as e:
-        logger.error(f"Bot failed to start: {e}")
-        raise
-
-
 def run_http_server():
-    """Запуск HTTP сервера для health checks"""
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     logger.info(f"HTTP server started on port {port}")
     server.serve_forever()
 
 
+async def main():
+    try:
+        # Проверяем переменные окружения
+        bot_token = os.getenv('BOT_TOKEN')
+        if not bot_token:
+            logger.error("❌ BOT_TOKEN не найден!")
+            if os.environ.get('ON_RENDER'):
+                logger.info("На Render добавьте BOT_TOKEN в Environment Variables")
+            sys.exit(1)
+
+        logger.info("🔄 Инициализация бота...")
+
+        # Инициализируем бота
+        bot = Bot(token=bot_token)
+        dp = Dispatcher(storage=MemoryStorage())
+
+        # Подключаем роутеры
+        dp.include_router(products_router)
+        dp.include_router(cart_router)
+        dp.include_router(order_router)
+
+        # Добавляем базовые команды
+        @dp.message(Command("start"))
+        async def cmd_start(message: types.Message):
+            await message.answer(
+                "🏪 Добро пожаловать в магазин!\n\n"
+                "Доступные команды:\n"
+                "/start - Начало работы\n"
+                "/products - Показать каталог\n"
+                "/cart - Корзина\n"
+                "/help - Помощь"
+            )
+
+        @dp.message(Command("help"))
+        async def cmd_help(message: types.Message):
+            await message.answer(
+                "ℹ️ Помощь по командам:\n\n"
+                "/products - Просмотр каталога товаров\n"
+                "/cart - Просмотр корзины\n"
+                "/order - Оформление заказа\n\n"
+                "Просто нажмите на нужную команду!"
+            )
+
+        # Проверяем подключение
+        me = await bot.get_me()
+        logger.info(f"✅ Бот @{me.username} успешно запущен!")
+
+        # Удаляем старые вебхуки (если были)
+        await bot.delete_webhook(drop_pending_updates=True)
+
+        # Запускаем поллинг
+        logger.info("⏳ Запуск polling...")
+        await dp.start_polling(bot)
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска бота: {e}")
+        raise
+
+
 if __name__ == '__main__':
-    # Проверяем, что бот не запущен локально
+    # Проверяем, запущен ли на Render
     is_render = os.environ.get('ON_RENDER', '').lower() == 'true'
 
     if is_render:
-        logger.info("Running on Render")
+        logger.info("🌐 Запуск на Render")
         # Запускаем HTTP сервер в отдельном потоке
         import threading
 
         http_thread = threading.Thread(target=run_http_server, daemon=True)
         http_thread.start()
+    else:
+        logger.info("💻 Локальный запуск")
 
     try:
-        asyncio.run(start_bot())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped")
+        logger.info("⏹ Бот остановлен пользователем")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"💥 Критическая ошибка: {e}")
         sys.exit(1)
