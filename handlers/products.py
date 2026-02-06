@@ -11,7 +11,7 @@ products = [
     {"id": 3, "name": "🎧 AirPods Pro", "price": 24900, "description": "Беспроводные наушники"},
 ]
 
-# Временное хранилище корзины (в реальном проекте используйте базу данных)
+# Временное хранилище корзины
 user_carts = {}
 
 
@@ -27,8 +27,11 @@ async def show_products(message: types.Message):
         )
         keyboard_buttons.append([button])
 
-    # Добавляем кнопку корзины
-    keyboard_buttons.append([InlineKeyboardButton(text="🛒 Корзина", callback_data="show_cart")])
+    # Добавляем кнопки навигации
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="🛒 Корзина", callback_data="show_cart"),
+        InlineKeyboardButton(text="🔙 Главная", callback_data="go_start")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
@@ -47,7 +50,10 @@ async def show_product_detail(callback: types.CallbackQuery):
     if product:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Добавить в корзину", callback_data=f"add_to_cart_{product_id}")],
-            [InlineKeyboardButton(text="🔙 Назад к каталогу", callback_data="back_to_products")]
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_products"),
+                InlineKeyboardButton(text="🛒 Корзина", callback_data="show_cart")
+            ]
         ])
 
         await callback.message.edit_text(
@@ -69,60 +75,53 @@ async def add_to_cart(callback: types.CallbackQuery):
     if product:
         user_id = callback.from_user.id
 
-        # Инициализируем корзину пользователя, если её нет
+        # Инициализируем корзину
         if user_id not in user_carts:
             user_carts[user_id] = []
 
-        # Добавляем товар в корзину
+        # Добавляем товар
         user_carts[user_id].append(product)
 
-        # Подсчитываем количество товаров в корзине
+        # Подсчитываем
         cart_count = len(user_carts[user_id])
+        total_price = sum(item['price'] for item in user_carts[user_id])
 
-        # Создаем клавиатуру с обновленной информацией
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="show_cart")],
-            [InlineKeyboardButton(text="🔙 Назад к каталогу", callback_data="back_to_products")]
+            [InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back_to_products")]
         ])
 
         await callback.message.edit_text(
             f"✅ <b>{product['name']}</b> добавлен в корзину!\n\n"
             f"💰 Цена: <b>{product['price']}₽</b>\n"
-            f"🛍 В корзине: <b>{cart_count}</b> товар(ов)",
+            f"🛍 В корзине: <b>{cart_count}</b> товар(ов) на <b>{total_price}₽</b>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
 
-    await callback.answer(f"Товар добавлен в корзину!", show_alert=False)
+    await callback.answer("Товар добавлен в корзину!", show_alert=False)
 
 
 @router.callback_query(F.data == "back_to_products")
 async def back_to_products(callback: types.CallbackQuery):
-    # Создаем клавиатуру с товарами
-    keyboard_buttons = []
-
-    for product in products:
-        button = InlineKeyboardButton(
-            text=f"{product['name']} - {product['price']}₽",
-            callback_data=f"view_product_{product['id']}"
-        )
-        keyboard_buttons.append([button])
-
-    # Добавляем кнопку корзины
-    keyboard_buttons.append([InlineKeyboardButton(text="🛒 Корзина", callback_data="show_cart")])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
-    await callback.message.edit_text(
-        "<b>🏪 Каталог товаров:</b>\nВыберите товар:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    await show_products(callback.message)
     await callback.answer()
 
 
-@router.callback_query(F.data == "show_cart")
-async def show_cart(callback: types.CallbackQuery):
-    from handlers.cart import show_cart_handler
-    await show_cart_handler(callback.message, callback.from_user.id)
+@router.callback_query(F.data == "go_start")
+async def go_start(callback: types.CallbackQuery):
+    from main import dp  # Импортируем диспетчер для вызова команды start
+
+    # Имитируем команду /start
+    await callback.message.delete()
+    await callback.message.answer(
+        "🏪 <b>Добро пожаловать в магазин!</b>\n\n"
+        "Доступные команды:\n"
+        "/start - Начало работы\n"
+        "/products - Показать каталог\n"
+        "/cart - Корзина\n"
+        "/order - Оформление заказа\n"
+        "/help - Помощь",
+        parse_mode="HTML"
+    )
     await callback.answer()
