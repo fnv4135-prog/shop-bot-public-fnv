@@ -33,10 +33,44 @@ def check_single_instance():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', 9999))
         sock.listen(5)
+        logger.info("✅ Проверка на множественный запуск пройдена")
         return True
     except socket.error:
         logger.error("⚠️ Бот уже запущен! Закройте все другие экземпляры.")
+        logger.error("Выполните команды остановки:")
+        logger.error("  Windows: taskkill /f /im python.exe")
+        logger.error("  Git Bash: pkill -f python")
         return False
+
+
+# ================== ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ СТАРЫХ СЕССИЙ ==================
+async def cleanup_old_sessions(bot_token: str):
+    """Принудительно завершаем все старые сессии бота"""
+    try:
+        logger.info("🔄 Очистка старых сессий бота...")
+
+        # Создаем временного бота для очистки
+        temp_bot = Bot(token=bot_token)
+
+        # Удаляем вебхук (если был)
+        try:
+            await temp_bot.delete_webhook(drop_pending_updates=True)
+            logger.info("✅ Старые вебхуки удалены")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить вебхук: {e}")
+
+        # Закрываем сессию
+        try:
+            await temp_bot.session.close()
+            logger.info("✅ Сессия закрыта")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось закрыть сессию: {e}")
+
+        # Даем время на завершение
+        await asyncio.sleep(2)
+
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка при очистке сессий: {e}")
 
 
 # ================== HEALTH CHECK ДЛЯ RENDER ==================
@@ -72,14 +106,15 @@ async def setup_global_handlers(dp: Dispatcher):
     @dp.callback_query()
     async def debug_all_callbacks(callback: types.CallbackQuery):
         """Логируем все callback-запросы"""
-        logger.info(f"📨 DEBUG Callback received: {callback.data} from user {callback.from_user.id}")
-        # Не прерываем цепочку обработки, поэтому не вызываем callback.answer() здесь
+        logger.info(f"📨 Callback: {callback.data} from {callback.from_user.id}")
+        # Не прерываем цепочку обработки
 
     # Обработчик всех сообщений
     @dp.message()
     async def debug_all_messages(message: types.Message):
         """Логируем все сообщения"""
-        logger.info(f"📝 DEBUG Message received: {message.text} from user {message.from_user.id}")
+        if message.text and message.text.startswith('/'):
+            logger.info(f"📝 Command: {message.text} from {message.from_user.id}")
 
 
 # ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
@@ -94,6 +129,12 @@ async def main():
             sys.exit(1)
 
         logger.info("🔄 Инициализация бота...")
+
+        # ОЧИСТКА СТАРЫХ СЕССИЙ ПЕРЕД ЗАПУСКОМ
+        await cleanup_old_sessions(bot_token)
+
+        # Даем время на очистку
+        await asyncio.sleep(3)
 
         # Инициализируем бота
         bot = Bot(token=bot_token)
@@ -137,8 +178,9 @@ async def main():
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
 
-        # Удаляем старые вебхуки (если были)
+        # Удаляем вебхуки еще раз (на всякий случай)
         await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Вебхуки удалены")
 
         # Запускаем поллинг
         logger.info("⏳ Запуск polling...")
