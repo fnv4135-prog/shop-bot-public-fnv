@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 async def show_cart_handler(message: types.Message, user_id: int = None):
+    """Функция для отображения корзины"""
     if user_id is None:
         user_id = message.from_user.id
 
@@ -18,16 +19,24 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
 
     if not cart:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
-            [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+            [InlineKeyboardButton(text="🛍 В каталог", callback_data="back_to_products")],
+            [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
         ])
 
-        text = "🛒 <b>Ваша корзина пуста</b>\n\nДобавьте товары из каталога!"
-
         if hasattr(message, 'edit_text'):
-            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            await message.edit_text(
+                "🛒 <b>Ваша корзина пуста</b>\n\n"
+                "Добавьте товары из каталога!",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
         else:
-            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            await message.answer(
+                "🛒 <b>Ваша корзина пуста</b>\n\n"
+                "Добавьте товары из каталога!",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
         return
 
     # Подсчитываем
@@ -41,11 +50,11 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
     cart_text += f"\n<b>Товаров: {len(cart)}</b>\n<b>Итого: {total}₽</b>"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Очистить", callback_data="clear")],
-        [InlineKeyboardButton(text="✅ Оформить", callback_data="order")],
+        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_cart")],
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order")],
         [
-            InlineKeyboardButton(text="🛍 В каталог", callback_data="back"),
-            InlineKeyboardButton(text="🏠 Главная", callback_data="home")
+            InlineKeyboardButton(text="🛍 В каталог", callback_data="back_to_products"),
+            InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
         ]
     ])
 
@@ -60,20 +69,20 @@ async def cmd_cart(message: types.Message):
     await show_cart_handler(message)
 
 
-@router.callback_query(lambda c: c.data == "cart")
+@router.callback_query(lambda c: c.data == "view_cart")
 async def callback_show_cart(callback: types.CallbackQuery):
     await show_cart_handler(callback.message, callback.from_user.id)
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "clear")
+@router.callback_query(lambda c: c.data == "clear_cart")
 async def clear_cart(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     user_carts[user_id] = []
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
-        [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back_to_products")],
+        [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
     ])
 
     await callback.message.edit_text(
@@ -81,10 +90,10 @@ async def clear_cart(callback: types.CallbackQuery):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    await callback.answer("Корзина очищена!")
+    await callback.answer("Корзина очищена!", show_alert=False)
 
 
-@router.callback_query(lambda c: c.data == "order")
+@router.callback_query(lambda c: c.data == "create_order")
 async def create_order(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     cart = user_carts.get(user_id, [])
@@ -96,15 +105,15 @@ async def create_order(callback: types.CallbackQuery):
     total = sum(item['price'] for item in cart)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="cart")]
+        [InlineKeyboardButton(text="✅ Подтвердить заказ", callback_data="confirm_order")],
+        [InlineKeyboardButton(text="🔙 Назад в корзину", callback_data="view_cart")]
     ])
 
     await callback.message.edit_text(
         f"✅ <b>Оформление заказа</b>\n\n"
         f"Товаров: {len(cart)}\n"
         f"Сумма: {total}₽\n\n"
-        f"Для оформления нажмите 'Подтвердить'.\n"
+        f"Для оформления нажмите 'Подтвердить заказ'.\n"
         f"Администратор свяжется с вами в ближайшее время.",
         reply_markup=keyboard,
         parse_mode="HTML"
@@ -112,7 +121,7 @@ async def create_order(callback: types.CallbackQuery):
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "confirm")
+@router.callback_query(lambda c: c.data == "confirm_order")
 async def confirm_order(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     cart = user_carts.get(user_id, [])
@@ -127,8 +136,8 @@ async def confirm_order(callback: types.CallbackQuery):
     user_carts[user_id] = []
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back")],
-        [InlineKeyboardButton(text="🏠 Главная", callback_data="home")]
+        [InlineKeyboardButton(text="🛍 В каталог", callback_data="back_to_products")],
+        [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
     ])
 
     await callback.message.edit_text(

@@ -20,7 +20,7 @@ user_carts = {}
 @router.message(Command("products"))
 async def show_products(message: types.Message):
     """Показать каталог товаров"""
-    logger.info(f"User {message.from_user.id} requested /products")
+    logger.info(f"📦 Пользователь {message.from_user.id} запросил каталог")
 
     # Создаем кнопки для каждого товара
     keyboard_buttons = []
@@ -28,29 +28,29 @@ async def show_products(message: types.Message):
     for product in products:
         button = InlineKeyboardButton(
             text=f"{product['name']} - {product['price']}₽",
-            callback_data=f"view_{product['id']}"
+            callback_data=f"product_{product['id']}"
         )
         keyboard_buttons.append([button])
 
     # Кнопки навигации
     keyboard_buttons.append([
-        InlineKeyboardButton(text="🛒 Корзина", callback_data="cart"),
-        InlineKeyboardButton(text="🏠 Главная", callback_data="home")
+        InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart"),
+        InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
     ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
     await message.answer(
-        "🏪 <b>Каталог товаров:</b>\nВыберите товар:",
+        "🏪 <b>Каталог товаров:</b>\n\nВыберите товар:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 
-@router.callback_query(lambda c: c.data.startswith("view_"))
+@router.callback_query(lambda c: c.data.startswith("product_"))
 async def show_product_detail(callback: types.CallbackQuery):
     """Показать детали товара"""
-    logger.info(f"Callback view: {callback.data}")
+    logger.info(f"🛍️ Callback: {callback.data}")
 
     try:
         product_id = int(callback.data.split("_")[1])
@@ -64,8 +64,8 @@ async def show_product_detail(callback: types.CallbackQuery):
             [InlineKeyboardButton(text="✅ Добавить в корзину",
                                   callback_data=f"add_{product_id}")],
             [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back"),
-                InlineKeyboardButton(text="🛒 Корзина", callback_data="cart")
+                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_products"),
+                InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart")
             ]
         ])
 
@@ -80,14 +80,14 @@ async def show_product_detail(callback: types.CallbackQuery):
         await callback.answer()
 
     except Exception as e:
-        logger.error(f"Error in show_product_detail: {e}")
+        logger.error(f"❌ Ошибка в show_product_detail: {e}")
         await callback.answer("Ошибка при загрузке товара", show_alert=True)
 
 
 @router.callback_query(lambda c: c.data.startswith("add_"))
 async def add_to_cart(callback: types.CallbackQuery):
     """Добавить товар в корзину"""
-    logger.info(f"Add to cart: {callback.data}")
+    logger.info(f"🛒 Добавление в корзину: {callback.data}")
 
     try:
         product_id = int(callback.data.split("_")[1])
@@ -111,8 +111,8 @@ async def add_to_cart(callback: types.CallbackQuery):
         total_price = sum(item['price'] for item in user_carts[user_id])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="cart")],
-            [InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back")]
+            [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="view_cart")],
+            [InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back_to_products")]
         ])
 
         await callback.message.edit_text(
@@ -126,21 +126,25 @@ async def add_to_cart(callback: types.CallbackQuery):
         await callback.answer("Товар добавлен!")
 
     except Exception as e:
-        logger.error(f"Error in add_to_cart: {e}")
+        logger.error(f"❌ Ошибка в add_to_cart: {e}")
         await callback.answer("Ошибка при добавлении в корзину", show_alert=True)
 
 
-@router.callback_query(lambda c: c.data == "back")
+@router.callback_query(lambda c: c.data == "back_to_products")
 async def back_to_products(callback: types.CallbackQuery):
     """Вернуться к каталогу"""
     await show_products(callback.message)
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "home")
+@router.callback_query(lambda c: c.data == "go_home")
 async def go_home(callback: types.CallbackQuery):
     """На главную"""
-    await callback.message.edit_text(
+    from main import dp
+
+    # Имитируем команду /start
+    await callback.message.delete()
+    await callback.message.answer(
         "🏪 <b>Добро пожаловать в магазин!</b>\n\n"
         "Доступные команды:\n"
         "/start - Начало работы\n"
@@ -150,4 +154,12 @@ async def go_home(callback: types.CallbackQuery):
         "/help - Помощь",
         parse_mode="HTML"
     )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "view_cart")
+async def view_cart(callback: types.CallbackQuery):
+    """Показать корзину"""
+    from handlers.cart import show_cart_handler
+    await show_cart_handler(callback.message, callback.from_user.id)
     await callback.answer()
