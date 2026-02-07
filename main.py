@@ -110,11 +110,11 @@ async def setup_global_handlers(dp: Dispatcher):
         # Не прерываем цепочку обработки
 
     # Обработчик всех сообщений
-    @dp.message()
-    async def debug_all_messages(message: types.Message):
-        """Логируем все сообщения"""
-        if message.text and message.text.startswith('/'):
-            logger.info(f"📝 Command: {message.text} from {message.from_user.id}")
+    #@dp.message()
+    #async def debug_all_messages(message: types.Message):
+    #    """Логируем все сообщения"""
+    #    if message.text and message.text.startswith('/'):
+    #        logger.info(f"📝 Command: {message.text} from {message.from_user.id}")
 
 
 # ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
