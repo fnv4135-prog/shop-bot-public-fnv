@@ -5,6 +5,7 @@ import sys
 import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
+from handlers.admin import router as admin_router
 
 load_dotenv()
 
@@ -133,6 +134,7 @@ async def main():
         dp.include_router(products_router)
         dp.include_router(cart_router)
         dp.include_router(order_router)
+        dp.include_router(admin_router)
 
         # Настраиваем глобальные обработчики для отладки
         await setup_global_handlers(dp)
