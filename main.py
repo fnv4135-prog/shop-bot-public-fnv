@@ -103,10 +103,10 @@ async def setup_global_handlers(dp: Dispatcher):
     """Настройка глобальных обработчиков для отладки"""
 
     # ТОЛЬКО callback-обработчик для отладки, без глобального обработчика сообщений
-    @dp.callback_query()
-    async def debug_all_callbacks(callback: types.CallbackQuery):
-        """Логируем все callback-запросы, но не блокируем их"""
-        logger.info(f"📨 DEBUG Callback: {callback.data}")
+#    @dp.callback_query()
+#    async def debug_all_callbacks(callback: types.CallbackQuery):
+#       """Логируем все callback-запросы, но не блокируем их"""
+#        logger.info(f"📨 DEBUG Callback: {callback.data}")
         # Не вызываем callback.answer() чтобы не блокировать обработку
 
     # УБРАН глобальный обработчик сообщений - он мешал командам
