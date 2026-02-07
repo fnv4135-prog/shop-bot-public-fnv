@@ -96,6 +96,14 @@ async def show_product_detail(callback: types.CallbackQuery):
         await callback.answer("Ошибка при загрузке товара", show_alert=True)
 
 
+@router.callback_query(lambda c: c.data == "show_catalog")
+async def callback_show_catalog(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Каталог товаров' из главного меню"""
+    logger.info(f"📱 Пользователь {callback.from_user.id} открыл каталог через кнопку")
+    await show_products(callback.message)
+    await callback.answer()
+
+
 @router.callback_query(lambda c: c.data.startswith("add_"))
 async def add_to_cart(callback: types.CallbackQuery):
     """Добавить товар в корзину"""
