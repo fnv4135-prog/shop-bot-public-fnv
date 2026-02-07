@@ -32,7 +32,7 @@ async def show_products(message: types.Message):
         )
         keyboard_buttons.append([button])
 
-    # Кнопки навигации
+    # Кнопки навигации - УЖЕ ЕСТЬ КНОПКА "ГЛАВНАЯ" ✅
     keyboard_buttons.append([
         InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart"),
         InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
@@ -65,13 +65,16 @@ async def show_product_detail(callback: types.CallbackQuery):
 
         logger.info(f"✅ Найден товар: {product['name']}")
 
+        # ВАЖНОЕ ИЗМЕНЕНИЕ: Добавляем кнопку "Главная" в детали товара
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Добавить в корзину",
                                   callback_data=f"add_{product_id}")],
             [
                 InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_products"),
                 InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart")
-            ]
+            ],
+            # НОВАЯ СТРОКА: Кнопка "Главная" для навигации
+            [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
         ])
 
         logger.info(f"📝 Редактирую сообщение для пользователя {callback.from_user.id}")
@@ -124,9 +127,13 @@ async def add_to_cart(callback: types.CallbackQuery):
 
         logger.info(f"✅ Товар добавлен. В корзине: {cart_count} товаров на {total_price}₽")
 
+        # ВАЖНОЕ ИЗМЕНЕНИЕ: Добавляем кнопку "Главная" при добавлении в корзину
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="view_cart")],
-            [InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back_to_products")]
+            [
+                InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back_to_products"),
+                InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
+            ]
         ])
 
         await callback.message.edit_text(
@@ -149,23 +156,6 @@ async def back_to_products(callback: types.CallbackQuery):
     """Вернуться к каталогу"""
     logger.info(f"🔙 Возврат в каталог от пользователя {callback.from_user.id}")
     await show_products(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(lambda c: c.data == "go_home")
-async def go_home(callback: types.CallbackQuery):
-    """На главную"""
-    logger.info(f"🏠 Переход на главную от пользователя {callback.from_user.id}")
-    await callback.message.edit_text(
-        "🏪 <b>Добро пожаловать в магазин!</b>\n\n"
-        "Доступные команды:\n"
-        "/start - Начало работы\n"
-        "/products - Показать каталог\n"
-        "/cart - Корзина\n"
-        "/order - Оформление заказа\n"
-        "/help - Помощь",
-        parse_mode="HTML"
-    )
     await callback.answer()
 
 
