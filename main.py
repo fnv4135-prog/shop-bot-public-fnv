@@ -108,6 +108,7 @@ async def setup_global_handlers(dp: Dispatcher):
 
 
 # ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
+# ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
 async def main():
     try:
         # Проверяем переменные окружения
@@ -119,6 +120,16 @@ async def main():
             sys.exit(1)
 
         logger.info("🔄 Инициализация бота...")
+
+        # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
+        try:
+            from database import init_db
+            await init_db()
+            logger.info("✅ База данных подключена")
+        except Exception as e:
+            logger.error(f"❌ Ошибка подключения к БД: {e}")
+            logger.info("⚠️  Проверьте DATABASE_URL в .env файле")
+            sys.exit(1)
 
         # ОЧИСТКА СТАРЫХ СЕССИЙ ПЕРЕД ЗАПУСКОМ
         await cleanup_old_sessions(bot_token)
@@ -140,25 +151,18 @@ async def main():
         await setup_global_handlers(dp)
 
         # ================== НОВОЕ: ГЛАВНОЕ МЕНЮ НА КНОПКАХ ==================
-        # Вместо старого текстового меню создаем единый обработчик с инлайн-клавиатурой
-        # Этот обработчик реагирует на команды /start, /help, /menu
 
         @dp.message(Command("start", "help", "menu"))
         async def unified_menu_handler(message: types.Message):
             """ЕДИНЫЙ ОБРАБОТЧИК ГЛАВНОГО МЕНЮ (заменяет старые cmd_start и cmd_help)"""
 
-            # Создаем клавиатуру с кнопками
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                # Ряд 1: Основные функции
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
-                # Ряд 2: Вспомогательные функции
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
                  types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
-                # Ряд 3: Информация
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
 
-            # Текст главного меню
             welcome_text = (
                 "🏪 <b>Добро пожаловать в магазин электроники FN-Tech!</b>\n\n"
                 "🎯 <b>Выберите действие:</b>\n\n"
@@ -169,7 +173,6 @@ async def main():
                 "✨ <i>Просто нажмите на нужную кнопку!</i>"
             )
 
-            # Отправляем сообщение с клавиатурой
             await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
             logger.info(f"📱 Пользователь {message.from_user.id} открыл главное меню")
 
@@ -194,9 +197,8 @@ async def main():
                 "• <b>❓ Помощь</b> — информация о доставке и оплате"
             )
 
-            # Редактируем существующее сообщение (меняем текст и кнопки)
             await callback.message.edit_text(welcome_text, reply_markup=keyboard, parse_mode="HTML")
-            await callback.answer()  # Убираем "часики" у кнопки
+            await callback.answer()
             logger.info(f"🔼 Пользователь {callback.from_user.id} вернулся в главное меню")
 
         @dp.callback_query(lambda c: c.data == "help_info")
@@ -215,7 +217,6 @@ async def main():
                 "🔧 <b>Техподдержка:</b> Если что-то не работает, напишите нам!"
             )
 
-            # Кнопка для возврата в меню
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")]
             ])
@@ -245,20 +246,12 @@ async def main():
             await callback.answer("Раздел в разработке", show_alert=False)
             logger.info(f"📝 Пользователь {callback.from_user.id} открыл раздел 'Мои заказы'")
 
-        # ================== СУЩЕСТВУЮЩАЯ ЛОГИКА (без изменений) ==================
-        # Старый обработчик кнопки "Главная" (оставлен для совместимости со старыми сообщениями)
-        @dp.callback_query(lambda c: c.data == "go_home")
-        async def old_go_home_handler(callback: types.CallbackQuery):
-            """СТАРЫЙ ОБРАБОТЧИК (для совместимости) - удалите через 2 недели"""
-            # Перенаправляем на новый обработчик
-            await go_home_handler(callback)
-
         # ================== ЗАПУСК И ПРОВЕРКИ ==================
         # Проверяем подключение
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
 
-        # Удаляем вебхуки еще раз (на всякий случай)
+        # Удаляем вебхуки
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("✅ Вебхуки удалены")
 
@@ -269,7 +262,14 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
         raise
-
+    finally:
+        # Всегда закрываем подключение к БД при остановке
+        try:
+            from database import close_db
+            await close_db()
+            logger.info("📴 Подключение к БД закрыто")
+        except:
+            pass
 
 # ================== ТОЧКА ВХОДА ==================
 if __name__ == '__main__':
