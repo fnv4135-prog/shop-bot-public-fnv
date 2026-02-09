@@ -1,11 +1,10 @@
+# В начале файла добавляем импорты
 import asyncio
 import logging
 import os
 import sys
 import socket
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
-from handlers.admin import router as admin_router
 
 load_dotenv()
 
@@ -14,10 +13,15 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ================== ИМПОРТ РОУТЕРОВ ==================
-# Существующие роутеры
+from handlers.admin import router as admin_router
 from handlers.products import router as products_router
 from handlers.cart import router as cart_router
 from handlers.order import router as order_router
+
+# ================== ИМПОРТ УТИЛИТ ==================
+from utils.http_server import run_http_server
+from utils.cleanup import cleanup_old_sessions
+from utils.debug_handlers import setup_global_handlers
 
 # ================== НАСТРОЙКА ЛОГИРОВАНИЯ ==================
 logging.basicConfig(
@@ -39,107 +43,54 @@ def check_single_instance():
         return True
     except socket.error:
         logger.error("⚠️ Бот уже запущен! Закройте все другие экземпляры.")
-        logger.error("Выполните команды остановки:")
-        logger.error("  Windows: taskkill /f /im python.exe")
-        logger.error("  Git Bash: pkill -f python")
         return False
 
 
-# ================== ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ СТАРЫХ СЕССИЙ ==================
-async def cleanup_old_sessions(bot_token: str):
-    """Принудительно завершаем все старые сессии бота"""
+# ================== ОБРАБОТЧИКИ ЗАВЕРШЕНИЯ РАБОТЫ ==================
+async def on_shutdown():
+    """Действия при завершении работы бота"""
+    logger.info("🔄 Завершение работы бота...")
+
+    # Закрываем подключение к БД
     try:
-        logger.info("🔄 Очистка старых сессий бота...")
-
-        # Создаем временного бота для очистки
-        temp_bot = Bot(token=bot_token)
-
-        # Удаляем вебхук (если был)
-        try:
-            await temp_bot.delete_webhook(drop_pending_updates=True)
-            logger.info("✅ Старые вебхуки удалены")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить вебхук: {e}")
-
-        # Закрываем сессию
-        try:
-            await temp_bot.session.close()
-            logger.info("✅ Сессия закрыта")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось закрыть сессию: {e}")
-
-        # Даем время на завершение
-        await asyncio.sleep(2)
-
+        from database import close_pool
+        await close_pool()
+        logger.info("📴 Подключение к БД закрыто")
     except Exception as e:
-        logger.warning(f"⚠️ Ошибка при очистке сессий: {e}")
+        logger.error(f"Ошибка при закрытии БД: {e}")
 
 
-# ================== HEALTH CHECK ДЛЯ RENDER ==================
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ['/', '/health', '/ping']:
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'Shop Bot is running')
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        # Отключаем логи health check запросов
-        pass
-
-
-def run_http_server():
-    """Запуск HTTP сервера для health checks (только на Render)"""
-    port = int(os.environ.get('PORT', 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    logger.info(f"🌐 HTTP server started on port {port}")
-    server.serve_forever()
-
-
-# ================== ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ДЛЯ ОТЛАДКИ ==================
-async def setup_global_handlers(dp: Dispatcher):
-    """Настройка глобальных обработчиков (заглушка)"""
-    # Здесь можно добавить глобальные middleware или фильтры
-    pass
-
-
-# ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
-# ================== ОСНОВНАЯ ФУНКЦИЯ БОТА ==================
 async def main():
     try:
         # Проверяем переменные окружения
         bot_token = os.getenv('BOT_TOKEN')
         if not bot_token:
             logger.error("❌ BOT_TOKEN не найден!")
-            if os.environ.get('ON_RENDER'):
-                logger.info("На Render добавьте BOT_TOKEN в Environment Variables")
             sys.exit(1)
 
         logger.info("🔄 Инициализация бота...")
 
         # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
         try:
-            from database import init_db
-            await init_db()
-            logger.info("✅ База данных подключена")
+            from database import init_pool, create_tables, migrate_initial_data
+            await init_pool()
+            await create_tables()
+            initial_count = await migrate_initial_data()
+            logger.info(f"✅ База данных подключена. Товаров в БД: {initial_count}")
         except Exception as e:
-            logger.error(f"❌ Ошибка подключения к БД: {e}")
-            logger.info("⚠️  Проверьте DATABASE_URL в .env файле")
-            sys.exit(1)
+            logger.error(f"❌ Ошибка инициализации БД: {e}")
+            raise
 
         # ОЧИСТКА СТАРЫХ СЕССИЙ ПЕРЕД ЗАПУСКОМ
         await cleanup_old_sessions(bot_token)
-
-        # Даем время на очистку
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
 
         # Инициализируем бота
         bot = Bot(token=bot_token)
         dp = Dispatcher(storage=MemoryStorage())
+
+        # Настраиваем обработчик завершения
+        dp.shutdown.register(on_shutdown)
 
         # Подключаем роутеры
         dp.include_router(products_router)
@@ -150,12 +101,10 @@ async def main():
         # Настраиваем глобальные обработчики для отладки
         await setup_global_handlers(dp)
 
-        # ================== НОВОЕ: ГЛАВНОЕ МЕНЮ НА КНОПКАХ ==================
-
+        # ================== ГЛАВНОЕ МЕНЮ НА КНОПКАХ ==================
         @dp.message(Command("start", "help", "menu"))
         async def unified_menu_handler(message: types.Message):
-            """ЕДИНЫЙ ОБРАБОТЧИК ГЛАВНОГО МЕНЮ (заменяет старые cmd_start и cmd_help)"""
-
+            """ЕДИНЫЙ ОБРАБОТЧИК ГЛАВНОГО МЕНЮ"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
@@ -176,11 +125,10 @@ async def main():
             await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
             logger.info(f"📱 Пользователь {message.from_user.id} открыл главное меню")
 
-        # ================== НОВОЕ: ОБРАБОТЧИКИ КНОПОК МЕНЮ ==================
-
+        # ================== ОБРАБОТЧИКИ КНОПОК МЕНЮ ==================
         @dp.callback_query(lambda c: c.data == "go_home")
         async def go_home_handler(callback: types.CallbackQuery):
-            """ОБРАБОТЧИК КНОПКИ 'ГЛАВНАЯ' - возврат в главное меню из любого раздела"""
+            """ОБРАБОТЧИК КНОПКИ 'ГЛАВНАЯ'"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
@@ -203,7 +151,7 @@ async def main():
 
         @dp.callback_query(lambda c: c.data == "help_info")
         async def help_info_handler(callback: types.CallbackQuery):
-            """ОБРАБОТЧИК КНОПКИ 'ПОМОЩЬ' - показывает информацию о магазине"""
+            """ОБРАБОТЧИК КНОПКИ 'ПОМОЩЬ'"""
             help_text = (
                 "❓ <b>Помощь и информация</b>\n\n"
                 "🛒 <b>Как сделать заказ:</b>\n"
@@ -227,7 +175,7 @@ async def main():
 
         @dp.callback_query(lambda c: c.data == "my_orders")
         async def my_orders_handler(callback: types.CallbackQuery):
-            """ЗАГЛУШКА ДЛЯ РАЗДЕЛА 'МОИ ЗАКАЗЫ' (будет реализовано позже)"""
+            """ЗАГЛУШКА ДЛЯ РАЗДЕЛА 'МОИ ЗАКАЗЫ'"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")]
             ])
@@ -262,14 +210,7 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
         raise
-    finally:
-        # Всегда закрываем подключение к БД при остановке
-        try:
-            from database import close_db
-            await close_db()
-            logger.info("📴 Подключение к БД закрыто")
-        except:
-            pass
+
 
 # ================== ТОЧКА ВХОДА ==================
 if __name__ == '__main__':
