@@ -196,11 +196,3 @@ async def confirm_order(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await callback.answer("Ошибка при оформлении заказа", show_alert=True)
-
-
-@router.callback_query(lambda c: c.data == "back_to_products")
-async def back_to_products(callback: types.CallbackQuery):
-    """Вернуться в каталог товаров"""
-    from handlers.products import show_products
-    await show_products(callback.message)
-    await callback.answer()
