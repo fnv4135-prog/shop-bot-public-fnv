@@ -1,13 +1,11 @@
-# handlers/admin.py
 from aiogram import Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import logging
 
-# Импортируем функции для работы с БД
-from database import get_all_products, count_products
-from database.cart import count_carts  # Если есть такая функция, если нет - создадим
+# Исправленный импорт - все из database
+from database import get_all_products, count_products, count_carts, add_product
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ class AddProduct(StatesGroup):
     waiting_for_name = State()
     waiting_for_description = State()
     waiting_for_price = State()
-    waiting_for_category = State()  # Добавили состояние для категории
+    waiting_for_category = State()
 
 
 # === КОМАНДА /admin ДЛЯ ВЫЗОВА АДМИНКИ ===
@@ -42,11 +40,11 @@ async def cmd_admin(message: types.Message):
     # Получаем статистику из БД
     try:
         products_count = await count_products()
-        # carts_count = await count_carts()  # Раскомментировать, когда будет функция
+        carts_count = await count_carts()  # Теперь функция есть!
     except Exception as e:
         logger.error(f"Ошибка получения статистики: {e}")
         products_count = "ошибка"
-        # carts_count = "ошибка"
+        carts_count = "ошибка"
 
     # Клавиатура админ-меню
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -59,7 +57,7 @@ async def cmd_admin(message: types.Message):
     await message.answer(
         f"🛠️ <b>Админ-панель магазина</b>\n\n"
         f"📦 Товаров в БД: {products_count}\n"
-        # f"🛒 Активных корзин: {carts_count}\n\n"  # Раскомментировать, когда будет функция
+        f"🛒 Активных корзин: {carts_count}\n\n"
         f"Выберите действие:",
         reply_markup=keyboard,
         parse_mode="HTML"
