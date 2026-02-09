@@ -1,17 +1,19 @@
+# handlers/admin.py
 from aiogram import Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import logging
 
-# Импортируем существующий список товаров из products.py
-from handlers.products import products
+# Импортируем функции для работы с БД
+from database import get_all_products, count_products
+from database.cart import count_carts  # Если есть такая функция, если нет - создадим
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 # === НАСТРОЙКА ПРАВ ДОСТУПА ===
-ADMIN_IDS = {524082641}  # Пока только ваш ID, позже добавим других
+ADMIN_IDS = {524082641}  # Ваш ID
 
 
 def is_admin(user_id: int) -> bool:
@@ -19,12 +21,13 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-# === FSM (Finite State Machine) ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ===
+# === FSM ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ===
 class AddProduct(StatesGroup):
     """Состояния для добавления нового товара"""
     waiting_for_name = State()
     waiting_for_description = State()
     waiting_for_price = State()
+    waiting_for_category = State()  # Добавили состояние для категории
 
 
 # === КОМАНДА /admin ДЛЯ ВЫЗОВА АДМИНКИ ===
@@ -36,6 +39,15 @@ async def cmd_admin(message: types.Message):
         await message.answer("⛔ У вас нет доступа к админ-панели.")
         return
 
+    # Получаем статистику из БД
+    try:
+        products_count = await count_products()
+        # carts_count = await count_carts()  # Раскомментировать, когда будет функция
+    except Exception as e:
+        logger.error(f"Ошибка получения статистики: {e}")
+        products_count = "ошибка"
+        # carts_count = "ошибка"
+
     # Клавиатура админ-меню
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product")],
@@ -45,8 +57,10 @@ async def cmd_admin(message: types.Message):
     ])
 
     await message.answer(
-        "🛠️ <b>Админ-панель магазина</b>\n\n"
-        "Выберите действие:",
+        f"🛠️ <b>Админ-панель магазина</b>\n\n"
+        f"📦 Товаров в БД: {products_count}\n"
+        # f"🛒 Активных корзин: {carts_count}\n\n"  # Раскомментировать, когда будет функция
+        f"Выберите действие:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -102,16 +116,14 @@ async def process_product_description(message: types.Message, state: FSMContext)
     )
 
 
-# === ОБРАБОТКА ЦЕНЫ И ФИНАЛИЗАЦИЯ ===
+# === ОБРАБОТКА ЦЕНЫ ===
 @router.message(AddProduct.waiting_for_price)
 async def process_product_price(message: types.Message, state: FSMContext):
-    """Получаем цену и сохраняем товар"""
+    """Получаем цену и запрашиваем категорию"""
     try:
-        # Пробуем преобразовать в число
         price = int(message.text)
         if price <= 0:
             raise ValueError("Цена должна быть положительной")
-
     except ValueError:
         await message.answer(
             "❌ Неверный формат цены!\n"
@@ -121,33 +133,59 @@ async def process_product_price(message: types.Message, state: FSMContext):
         )
         return
 
+    await state.update_data(price=price)
+    await state.set_state(AddProduct.waiting_for_category)
+
+    await message.answer(
+        "✅ Цена сохранена!\n\n"
+        "Теперь введите <b>категорию товара</b>:\n\n"
+        "<i>Пример: Смартфоны, Ноутбуки, Аксессуары</i>",
+        parse_mode="HTML"
+    )
+
+
+# === ОБРАБОТКА КАТЕГОРИИ И ФИНАЛИЗАЦИЯ ===
+@router.message(AddProduct.waiting_for_category)
+async def process_product_category(message: types.Message, state: FSMContext):
+    """Получаем категорию и сохраняем товар в БД"""
+    category = message.text
+
     # Получаем все сохранённые данные
     data = await state.get_data()
     await state.clear()
 
-    # Создаём новый товар
-    new_product = {
-        "id": len(products) + 1,  # Простой способ генерации ID
-        "name": data['name'],
-        "description": data['description'],
-        "price": price
-    }
+    try:
+        # Добавляем товар в БД
+        product_id = await add_product(
+            name=data['name'],
+            description=data['description'],
+            price=data['price'],
+            category=category
+        )
 
-    # Добавляем в список товаров
-    products.append(new_product)
+        logger.info(f"🆕 Админ добавил товар в БД: {data['name']} за {data['price']}₽, ID: {product_id}")
 
-    logger.info(f"🆕 Админ добавил товар: {new_product['name']} за {price}₽")
+        # Показываем результат
+        await message.answer(
+            f"✅ <b>Товар успешно добавлен в базу данных!</b>\n\n"
+            f"🆔 ID: {product_id}\n"
+            f"📦 Название: {data['name']}\n"
+            f"📝 Описание: {data['description']}\n"
+            f"💰 Цена: {data['price']}₽\n"
+            f"🏷️ Категория: {category}\n\n"
+            f"Теперь он доступен в каталоге для всех пользователей.",
+            parse_mode="HTML"
+        )
 
-    # Показываем результат
-    await message.answer(
-        f"✅ <b>Товар успешно добавлен!</b>\n\n"
-        f"🆔 ID: {new_product['id']}\n"
-        f"📦 Название: {new_product['name']}\n"
-        f"📝 Описание: {new_product['description']}\n"
-        f"💰 Цена: {new_product['price']}₽\n\n"
-        f"Теперь он доступен в каталоге для всех пользователей.",
-        parse_mode="HTML"
-    )
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении товара в БД: {e}")
+        await message.answer(
+            f"❌ <b>Ошибка при добавлении товара в БД:</b>\n\n"
+            f"{str(e)}\n\n"
+            f"Попробуйте снова или проверьте подключение к базе данных.",
+            parse_mode="HTML"
+        )
+        return
 
     # Предлагаем дальше
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -159,7 +197,7 @@ async def process_product_price(message: types.Message, state: FSMContext):
     await message.answer("Что дальше?", reply_markup=keyboard)
 
 
-# === ОБРАБОТЧИК ОТМЕНЫ (на всякий случай) ===
+# === ОБРАБОТЧИК ОТМЕНЫ ===
 @router.callback_query(F.data == "admin_cancel")
 async def admin_cancel(callback: types.CallbackQuery, state: FSMContext):
     """Отмена текущего действия в админке"""
@@ -168,32 +206,94 @@ async def admin_cancel(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# === ЗАГЛУШКИ ДЛЯ ДРУГИХ ФУНКЦИЙ (доделаем завтра) ===
+# === УПРАВЛЕНИЕ ТОВАРАМИ ===
 @router.callback_query(F.data == "admin_manage_products")
 async def manage_products(callback: types.CallbackQuery):
-    """Управление товарами (заглушка)"""
-    await callback.message.edit_text(
-        "📝 <b>Управление товарами</b>\n\n"
-        "Здесь можно редактировать и удалять товары.\n\n"
-        "<i>Эта функция будет доступна завтра!</i>",
-        parse_mode="HTML"
-    )
+    """Управление товарами"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    try:
+        products = await get_all_products()
+
+        if not products:
+            await callback.message.edit_text(
+                "📝 <b>Управление товарами</b>\n\n"
+                "В базе данных нет товаров.\n\n"
+                "Начните с добавления первого товара!",
+                parse_mode="HTML"
+            )
+            return
+
+        # Формируем список товаров (первые 5 для примера)
+        text = "📝 <b>Управление товарами</b>\n\n"
+        for product in products[:5]:  # Показываем первые 5
+            text += f"🆔 <b>{product['id']}</b>: {product['name']} - {product['price']}₽\n"
+
+        if len(products) > 5:
+            text += f"\n... и ещё {len(products) - 5} товаров"
+
+        # Клавиатура для управления
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="✏️ Редактировать товар", callback_data="admin_edit_product")],
+            [types.InlineKeyboardButton(text="🗑 Удалить товар", callback_data="admin_delete_product")],
+            [types.InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_back")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении товаров: {e}")
+        await callback.message.edit_text(
+            "❌ <b>Ошибка при загрузке товаров</b>\n\n"
+            "Проверьте подключение к базе данных.",
+            parse_mode="HTML"
+        )
+
     await callback.answer()
 
 
+# === СТАТИСТИКА ===
 @router.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
-    """Статистика (заглушка)"""
-    from handlers.products import user_carts
+    """Статистика магазина"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
 
-    total_products = len(products)
-    total_carts = len(user_carts)
+    try:
+        products_count = await count_products()
+        # Если есть функция count_carts в database.cart, можно добавить
+        # carts_count = await count_carts()
 
-    await callback.message.edit_text(
-        f"📊 <b>Статистика магазина</b>\n\n"
-        f"📦 Товаров в каталоге: {total_products}\n"
-        f"🛒 Активных корзин: {total_carts}\n\n"
-        f"<i>Детальная статистика будет завтра!</i>",
-        parse_mode="HTML"
-    )
+        stats_text = (
+            f"📊 <b>Статистика магазина</b>\n\n"
+            f"📦 Товаров в каталоге: {products_count}\n"
+            # f"🛒 Активных корзин: {carts_count}\n\n"
+            f"\n<i>Детальная статистика в разработке...</i>"
+        )
+
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_stats")],
+            [types.InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_back")]
+        ])
+
+        await callback.message.edit_text(stats_text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка получения статистики: {e}")
+        await callback.message.edit_text(
+            f"❌ <b>Ошибка получения статистики:</b>\n\n{str(e)}",
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+
+# === ВОЗВРАТ В АДМИНКУ ===
+@router.callback_query(F.data == "admin_back")
+async def admin_back(callback: types.CallbackQuery):
+    """Возврат в главное меню админки"""
+    await cmd_admin(callback.message)
     await callback.answer()

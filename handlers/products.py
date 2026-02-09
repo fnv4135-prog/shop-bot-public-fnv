@@ -1,162 +1,125 @@
+# handlers/products.py
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
+from database import get_all_products, get_product_by_id, add_to_cart, clear_cart
+
 router = Router()
 logger = logging.getLogger(__name__)
-
-# Товары
-products = [
-    {"id": 1, "name": "📱 iPhone 15", "price": 79900, "description": "Новый iPhone 15"},
-    {"id": 2, "name": "💻 MacBook Air", "price": 119900, "description": "Ноутбук Apple"},
-    {"id": 3, "name": "🎧 AirPods Pro", "price": 24900, "description": "Беспроводные наушники"},
-]
-
-# Временная корзина
-user_carts = {}
 
 
 @router.message(Command("products"))
 async def show_products(message: types.Message):
-    """Показать каталог товаров"""
+    """Показать каталог товаров из БД"""
     logger.info(f"📦 Пользователь {message.from_user.id} запросил каталог")
 
-    # Создаем кнопки для каждого товара
-    keyboard_buttons = []
+    # Получаем товары из БД (АСИНХРОННО!)
+    products = await get_all_products()
 
+    if not products:
+        await message.answer("📭 Каталог товаров пуст")
+        return
+
+    # Создаём кнопки для каждого товара
+    keyboard_buttons = []
     for product in products:
         button = InlineKeyboardButton(
-            text=f"{product['name']} - {product['price']}₽",
+            text=f"{product['name']} - {product['price']} руб.",
             callback_data=f"product_{product['id']}"
         )
         keyboard_buttons.append([button])
 
-    # Кнопки навигации - УЖЕ ЕСТЬ КНОПКА "ГЛАВНАЯ" ✅
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart"),
-        InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
-    ])
+    # Добавляем кнопку возврата в меню
+    keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
     await message.answer(
-        "🏪 <b>Каталог товаров:</b>\n\nВыберите товар:",
+        "🛒 <b>Каталог товаров:</b>\n\n"
+        "Выберите товар для добавления в корзину:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 
-@router.callback_query(lambda c: c.data.startswith("product_"))
-async def show_product_detail(callback: types.CallbackQuery):
-    """Показать детали товара"""
-    logger.info(f"🛍️ ВЫЗВАН обработчик show_product_detail с данными: {callback.data}")
-
-    try:
-        product_id = int(callback.data.split("_")[1])
-        logger.info(f"🆔 ID товара: {product_id}")
-
-        product = next((p for p in products if p["id"] == product_id), None)
-
-        if not product:
-            logger.error(f"❌ Товар с id {product_id} не найден")
-            await callback.answer("Товар не найден", show_alert=True)
-            return
-
-        logger.info(f"✅ Найден товар: {product['name']}")
-
-        # ВАЖНОЕ ИЗМЕНЕНИЕ: Добавляем кнопку "Главная" в детали товара
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Добавить в корзину",
-                                  callback_data=f"add_{product_id}")],
-            [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_products"),
-                InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart")
-            ],
-            # НОВАЯ СТРОКА: Кнопка "Главная" для навигации
-            [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
-        ])
-
-        logger.info(f"📝 Редактирую сообщение для пользователя {callback.from_user.id}")
-
-        await callback.message.edit_text(
-            f"<b>{product['name']}</b>\n\n"
-            f"{product['description']}\n\n"
-            f"💰 Цена: <b>{product['price']}₽</b>",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-
-        logger.info(f"✅ Сообщение отредактировано для товара {product_id}")
-
-        await callback.answer()
-
-    except Exception as e:
-        logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА в show_product_detail: {e}", exc_info=True)
-        await callback.answer("Ошибка при загрузке товара", show_alert=True)
-
-
 @router.callback_query(lambda c: c.data == "show_catalog")
-async def callback_show_catalog(callback: types.CallbackQuery):
-    """Обработчик кнопки 'Каталог товаров' из главного меню"""
-    logger.info(f"📱 Пользователь {callback.from_user.id} открыл каталог через кнопку")
+async def show_catalog_callback(callback: types.CallbackQuery):
+    """Показать каталог при нажатии на кнопку 'Каталог товаров'"""
     await show_products(callback.message)
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data.startswith("add_"))
-async def add_to_cart(callback: types.CallbackQuery):
-    """Добавить товар в корзину"""
-    logger.info(f"🛒 ВЫЗВАН обработчик add_to_cart с данными: {callback.data}")
+@router.callback_query(lambda c: c.data.startswith("product_"))
+async def show_product_detail(callback: types.CallbackQuery):
+    """Показать детали товара и кнопку добавления в корзину"""
+    product_id = int(callback.data.split("_")[1])
+
+    # Получаем товар из БД
+    product = await get_product_by_id(product_id)
+
+    if not product:
+        await callback.answer("Товар не найден", show_alert=True)
+        return
+
+    # Создаем клавиатуру
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ Добавить в корзину",
+                                 callback_data=f"add_to_cart_{product_id}"),
+            InlineKeyboardButton(text="🛒 В корзину",
+                                 callback_data="view_cart")
+        ],
+        [InlineKeyboardButton(text="⬅️ Назад к каталогу",
+                              callback_data="show_catalog")]
+    ])
+
+    # Формируем описание
+    description = product['description'] if product['description'] else "Описание отсутствует"
+
+    await callback.message.edit_text(
+        f"📱 <b>{product['name']}</b>\n\n"
+        f"📝 <b>Описание:</b> {description}\n"
+        f"💰 <b>Цена:</b> {product['price']} руб.\n"
+        f"📦 <b>Категория:</b> {product['category']}\n\n"
+        f"🛒 <i>Добавьте товар в корзину:</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith("add_to_cart_"))
+async def add_to_cart_handler(callback: types.CallbackQuery):
+    """Обработчик добавления товара в корзину"""
+    product_id = int(callback.data.split("_")[3])
 
     try:
-        product_id = int(callback.data.split("_")[1])
-        product = next((p for p in products if p["id"] == product_id), None)
+        # Используем функцию из database.cart
+        await add_to_cart(callback.from_user.id, product_id, 1)
 
-        if not product:
-            logger.error(f"❌ Товар с id {product_id} не найден при добавлении в корзину")
-            await callback.answer("Товар не найден", show_alert=True)
-            return
-
-        user_id = callback.from_user.id
-        logger.info(f"👤 Добавляем товар для пользователя {user_id}")
-
-        # Инициализируем корзину
-        if user_id not in user_carts:
-            user_carts[user_id] = []
-            logger.info(f"🆕 Создана новая корзина для пользователя {user_id}")
-
-        # Добавляем товар
-        user_carts[user_id].append(product)
-
-        # Подсчет
-        cart_count = len(user_carts[user_id])
-        total_price = sum(item['price'] for item in user_carts[user_id])
-
-        logger.info(f"✅ Товар добавлен. В корзине: {cart_count} товаров на {total_price}₽")
-
-        # ВАЖНОЕ ИЗМЕНЕНИЕ: Добавляем кнопку "Главная" при добавлении в корзину
+        # Кнопки для продолжения
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="view_cart")],
             [
-                InlineKeyboardButton(text="🔙 Продолжить покупки", callback_data="back_to_products"),
-                InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
+                InlineKeyboardButton(text="🛒 Перейти в корзину",
+                                     callback_data="view_cart"),
+                InlineKeyboardButton(text="📦 Продолжить покупки",
+                                     callback_data="show_catalog")
             ]
         ])
 
         await callback.message.edit_text(
-            f"✅ <b>{product['name']}</b> добавлен в корзину!\n\n"
-            f"💰 Цена: {product['price']}₽\n"
-            f"🛍 В корзине: {cart_count} товар(ов) на {total_price}₽",
+            "✅ <b>Товар успешно добавлен в корзину!</b>\n\n"
+            "Что вы хотите сделать дальше?",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
-
-        await callback.answer("Товар добавлен!")
+        await callback.answer("Товар добавлен в корзину!")
 
     except Exception as e:
-        logger.error(f"❌ Ошибка в add_to_cart: {e}", exc_info=True)
-        await callback.answer("Ошибка при добавлении в корзину", show_alert=True)
+        logger.error(f"Ошибка добавления в корзину: {e}")
+        await callback.answer("❌ Ошибка при добавлении в корзину", show_alert=True)
 
 
 @router.callback_query(lambda c: c.data == "back_to_products")
