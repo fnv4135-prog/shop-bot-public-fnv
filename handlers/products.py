@@ -96,6 +96,7 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
     product_id = int(callback.data.split("_")[3])
 
     try:
+        from database import add_to_cart
         # Используем функцию из database.cart
         await add_to_cart(callback.from_user.id, product_id, 1)
 

@@ -18,7 +18,7 @@ async def start_command(message: types.Message):
 @router.message(F.text == "📦 Каталог товаров")
 async def catalog_button(message: types.Message):
     # Импортируем здесь, чтобы избежать циклических импортов
-    from data.products import products
+    from database.products import products
 
     catalog_text = "📦 *Наш каталог товаров:*\n\n"
 
