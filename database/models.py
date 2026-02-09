@@ -80,6 +80,17 @@ async def create_tables():
             )
         ''')
 
+        await conn.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                       WHERE table_name='products' AND column_name='category') THEN
+                            ALTER TABLE products ADD COLUMN category VARCHAR(100) DEFAULT 'Без категории';
+                        END IF;
+                    END $$;
+                """)
+
+        logger.info("✅ Поле category в таблице products проверено/добавлено")
         logger.info("✅ Таблицы созданы/проверены")
 
 
