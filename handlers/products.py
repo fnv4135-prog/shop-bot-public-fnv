@@ -1,10 +1,9 @@
-# handlers/products.py
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
-from database import get_all_products, get_product_by_id, add_to_cart, clear_cart
+from database import get_all_products, get_product_by_id, add_to_cart
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -76,13 +75,14 @@ async def show_product_detail(callback: types.CallbackQuery):
     ])
 
     # Формируем описание
-    description = product['description'] if product['description'] else "Описание отсутствует"
+    description = product.get('description', "Описание отсутствует")
+    category = product.get('category', 'Без категории')
 
     await callback.message.edit_text(
         f"📱 <b>{product['name']}</b>\n\n"
         f"📝 <b>Описание:</b> {description}\n"
         f"💰 <b>Цена:</b> {product['price']} руб.\n"
-        f"📦 <b>Категория:</b> {product['category']}\n\n"
+        f"📦 <b>Категория:</b> {category}\n\n"
         f"🛒 <i>Добавьте товар в корзину:</i>",
         reply_markup=keyboard,
         parse_mode="HTML"
@@ -96,7 +96,6 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
     product_id = int(callback.data.split("_")[3])
 
     try:
-        from database import add_to_cart
         # Используем функцию из database.cart
         await add_to_cart(callback.from_user.id, product_id, 1)
 
@@ -121,20 +120,3 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка добавления в корзину: {e}")
         await callback.answer("❌ Ошибка при добавлении в корзину", show_alert=True)
-
-
-@router.callback_query(lambda c: c.data == "back_to_products")
-async def back_to_products(callback: types.CallbackQuery):
-    """Вернуться к каталогу"""
-    logger.info(f"🔙 Возврат в каталог от пользователя {callback.from_user.id}")
-    await show_products(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(lambda c: c.data == "view_cart")
-async def view_cart(callback: types.CallbackQuery):
-    """Показать корзину"""
-    logger.info(f"🛒 Показ корзины для пользователя {callback.from_user.id}")
-    from handlers.cart import show_cart_handler
-    await show_cart_handler(callback.message, callback.from_user.id)
-    await callback.answer()
