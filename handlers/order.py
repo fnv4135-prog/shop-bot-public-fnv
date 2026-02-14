@@ -17,45 +17,48 @@ async def cmd_order(message: types.Message):
 
 @router.callback_query(lambda c: c.data == "my_orders")
 async def show_my_orders(callback: types.CallbackQuery):
-    """Показывает историю заказов пользователя"""
-    user_id = callback.from_user.id
-    orders = await get_user_orders(user_id)
+    try:
+        user_id = callback.from_user.id
+        orders = await get_user_orders(user_id)
 
-    if not orders:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # Клавиатура для возврата
+        back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
             [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
         ])
-        await callback.message.edit_text(
-            "📝 <b>История заказов</b>\n\n"
-            "У вас пока нет ни одного заказа.\n"
-            "Перейдите в каталог, чтобы сделать первый заказ!",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+
+        if not orders:
+            await callback.message.edit_text(
+                "📝 <b>История заказов</b>\n\n"
+                "У вас пока нет ни одного заказа.\n"
+                "Перейдите в каталог, чтобы сделать первый заказ!",
+                reply_markup=back_keyboard,
+                parse_mode="HTML"
+            )
+            await callback.answer()
+            return
+
+        # Формируем сообщение с последними заказами
+        text = "📝 <b>Ваши последние заказы:</b>\n\n"
+        for order in orders[:5]:
+            date = order['order_date'].strftime('%d.%m.%Y %H:%M')
+            text += f"🆔 #{order['id']} от {date}\n"
+            text += f"💰 Сумма: {order['total_amount']}₽, статус: {order['status']}\n"
+
+            items = order['items']
+            if items and isinstance(items, list):
+                for item in items[:3]:
+                    text += f"   • {item['product_name']} x{item['quantity']} – {item['price']}₽\n"
+                if len(items) > 3:
+                    text += f"   ... и ещё {len(items) - 3} товаров\n"
+            text += "\n"
+
+        if len(orders) > 5:
+            text += f"<i>... и ещё {len(orders) - 5} заказов</i>\n\n"
+
+        await callback.message.edit_text(text, reply_markup=back_keyboard, parse_mode="HTML")
         await callback.answer()
-        return
 
-    text = "📝 <b>Ваши последние заказы:</b>\n\n"
-    for order in orders[:5]:
-        date = order['order_date'].strftime('%d.%m.%Y %H:%M')
-        text += f"🆔 #{order['id']} от {date}\n"
-        text += f"💰 Сумма: {order['total_amount']}₽, статус: {order['status']}\n"
-        items = order['items']
-        if items and isinstance(items, list):
-            for item in items[:3]:
-                text += f"   • {item['product_name']} x{item['quantity']} – {item['price']}₽\n"
-            if len(items) > 3:
-                text += f"   ... и ещё {len(items) - 3} товаров\n"
-        text += "\n"
-
-    if len(orders) > 5:
-        text += f"<i>... и ещё {len(orders) - 5} заказов</i>\n\n"
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
-        [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
-    ])
-
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    await callback.answer()
+    except Exception as e:
+        logger.exception(f"🔥 Ошибка в show_my_orders для user {callback.from_user.id}: {e}")
+        await callback.answer("Не удалось загрузить заказы. Попробуйте позже.", show_alert=True)
