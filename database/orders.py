@@ -1,13 +1,16 @@
 import logging
-from database import pool  # общий пул соединений
+from database.connection import pool  # прямой импорт из модуля connection
 
 logger = logging.getLogger(__name__)
 
 
 async def create_orders_tables():
     """Создаёт таблицы orders и order_items, если их нет"""
+    if pool is None:
+        logger.error("❌ Пул соединений не инициализирован! Таблицы заказов не созданы.")
+        return
+
     async with pool.acquire() as conn:
-        # Таблица заказов
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 id SERIAL PRIMARY KEY,
@@ -17,8 +20,6 @@ async def create_orders_tables():
                 status VARCHAR(50) DEFAULT 'новый'
             )
         ''')
-
-        # Таблица позиций заказа
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS order_items (
                 id SERIAL PRIMARY KEY,
@@ -33,28 +34,30 @@ async def create_orders_tables():
 
 
 async def save_order(user_id: int, cart_items: list, total: int) -> int:
-    """Сохраняет заказ в БД и возвращает его ID"""
+    if pool is None:
+        logger.error("❌ Пул соединений не инициализирован! Заказ не сохранён.")
+        return 0
+
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Вставляем заказ
             order = await conn.fetchrow(
                 'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING id',
                 user_id, total
             )
             order_id = order['id']
-
-            # Вставляем позиции
             for item in cart_items:
                 await conn.execute('''
                     INSERT INTO order_items (order_id, product_id, product_name, price, quantity)
                     VALUES ($1, $2, $3, $4, $5)
                 ''', order_id, item['id'], item['name'], item['price'], item['quantity'])
-
             return order_id
 
 
 async def get_user_orders(user_id: int):
-    """Возвращает все заказы пользователя с деталями"""
+    if pool is None:
+        logger.error("❌ Пул соединений не инициализирован! Заказы не получены.")
+        return []
+
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT o.id, o.order_date, o.total_amount, o.status,
