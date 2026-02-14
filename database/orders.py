@@ -1,12 +1,13 @@
 import logging
-import database.connection as db_conn  # импортируем модуль, а не переменную
+import database.connection as db_conn
+from database.users import ensure_user   # добавили
 
 logger = logging.getLogger(__name__)
 
 
 async def create_orders_tables():
     """Создаёт таблицы orders и order_items, если их нет"""
-    if db_conn.pool is None:  # обращаемся через модуль
+    if db_conn.pool is None:
         logger.error("❌ Пул соединений не инициализирован! Таблицы заказов не созданы.")
         return
 
@@ -17,7 +18,8 @@ async def create_orders_tables():
                 user_id BIGINT NOT NULL,
                 order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 total_amount INTEGER NOT NULL,
-                status VARCHAR(50) DEFAULT 'новый'
+                status VARCHAR(50) DEFAULT 'новый',
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
         await conn.execute('''
@@ -33,10 +35,13 @@ async def create_orders_tables():
         logger.info("✅ Таблицы заказов созданы или уже существуют")
 
 
-async def save_order(user_id: int, cart_items: list, total: int) -> int:
+async def save_order(user_id: int, cart_items: list, total: int, username: str = "", first_name: str = "", last_name: str = "") -> int:
     if db_conn.pool is None:
         logger.error("❌ Пул соединений не инициализирован! Заказ не сохранён.")
         return 0
+
+    # Убеждаемся, что пользователь есть в таблице users
+    await ensure_user(user_id, username, first_name, last_name)
 
     async with db_conn.pool.acquire() as conn:
         async with conn.transaction():

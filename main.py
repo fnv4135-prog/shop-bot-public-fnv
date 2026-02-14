@@ -25,6 +25,9 @@ from utils.http_server import run_http_server
 from utils.cleanup import cleanup_old_sessions
 from utils.debug_handlers import setup_global_handlers
 
+# ================== ИМПОРТ USERS ==================
+from database import create_users_table
+
 # ================== НАСТРОЙКА ЛОГИРОВАНИЯ ==================
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +75,7 @@ async def main():
             from database import init_pool, create_tables, migrate_initial_data
             from database import create_orders_tables  # импорт вверху
             await init_pool()
+            await create_users_table()
             await create_tables()
             await create_orders_tables()
             initial_count = await migrate_initial_data()

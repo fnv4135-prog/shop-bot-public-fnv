@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_cart_items, clear_cart
 from utils import gsheets
-from database import save_order
+from database import save_order, get_user_orders
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -170,7 +170,14 @@ async def confirm_order(callback: types.CallbackQuery):
     total_items = sum(item['quantity'] for item in cart_items)
 
     # Сохраняем заказ в БД и получаем реальный ID
-    order_id = await save_order(user_id, cart_items, total)
+    order_id = await save_order(
+        user_id=user_id,
+        cart_items=cart_items,
+        total=total,
+        username=callback.from_user.username or "",
+        first_name=callback.from_user.first_name or "",
+        last_name=callback.from_user.last_name or ""
+    )
 
     # Очищаем корзину
     success = await clear_cart(user_id)

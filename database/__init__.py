@@ -3,6 +3,7 @@ from .models import create_tables, migrate_initial_data
 from .products import get_all_products, get_product_by_id, add_product, count_products
 from .cart import get_cart_items, add_to_cart, clear_cart, count_carts
 from .orders import create_orders_tables, save_order, get_user_orders
+from .users import create_users_table, ensure_user   # добавили
 
 __all__ = [
     # Подключение
@@ -16,4 +17,7 @@ __all__ = [
 
     # Заказы
     'create_orders_tables', 'save_order', 'get_user_orders',
+
+    # Пользователи
+    'create_users_table', 'ensure_user',
 ]
