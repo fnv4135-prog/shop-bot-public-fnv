@@ -14,27 +14,27 @@ load_dotenv()  # ДОБАВЬТЕ ЭТУ СТРОКУ
 logger = logging.getLogger(__name__)
 
 # Глобальный пул подключений
-_pool: Optional[asyncpg.Pool] = None
+pool: Optional[asyncpg.Pool] = None
 
 
 async def get_pool() -> asyncpg.Pool:
     """Получить пул подключений к БД"""
-    global _pool
-    if _pool is None:
+    global pool
+    if pool is None:
         await init_pool()
-    return _pool
+    return pool
 
 
 async def init_pool():
     """Инициализация пула подключений"""
-    global _pool
+    global pool
     try:
         database_url = os.getenv('DATABASE_URL')
         if not database_url:
             logger.error("❌ DATABASE_URL не найден в переменных окружения")
             raise ValueError("DATABASE_URL не найден")
 
-        _pool = await asyncpg.create_pool(
+        pool = await asyncpg.create_pool(
             dsn=database_url,
             min_size=1,
             max_size=10,
@@ -50,8 +50,8 @@ async def init_pool():
 
 async def close_pool():
     """Закрытие пула подключений"""
-    global _pool
-    if _pool:
-        await _pool.close()
-        _pool = None
+    global pool
+    if pool:
+        await pool.close()
+        pool = None
         logger.info("✅ Пул подключений закрыт")

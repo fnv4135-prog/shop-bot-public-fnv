@@ -70,13 +70,16 @@ async def main():
         # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
         try:
             from database import init_pool, create_tables, migrate_initial_data
+            from database import create_orders_tables  # импорт вверху
             await init_pool()
             await create_tables()
+            await create_orders_tables()
             initial_count = await migrate_initial_data()
             logger.info(f"✅ База данных подключена. Товаров в БД: {initial_count}")
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации БД: {e}")
             raise
+
 
         await cleanup_old_sessions(bot_token)
         await asyncio.sleep(1)
@@ -169,25 +172,6 @@ async def main():
             await callback.answer()
             logger.info(f"❓ Пользователь {callback.from_user.id} открыл раздел помощи")
 
-        @dp.callback_query(lambda c: c.data == "my_orders")
-        async def my_orders_handler(callback: types.CallbackQuery):
-            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")]
-            ])
-
-            await callback.message.edit_text(
-                "📝 <b>История заказов</b>\n\n"
-                "⏳ <i>Этот раздел находится в активной разработке.</i>\n\n"
-                "Скоро здесь появится:\n"
-                "• Полная история ваших покупок\n"
-                "• Статусы текущих заказов\n"
-                "• Возможность повторить заказ\n\n"
-                "Следите за обновлениями!",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-            await callback.answer("Раздел в разработке", show_alert=False)
-            logger.info(f"📝 Пользователь {callback.from_user.id} открыл раздел 'Мои заказы'")
 
         # ================== ЗАПУСК И ПРОВЕРКИ ==================
         me = await bot.get_me()

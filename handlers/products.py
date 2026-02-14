@@ -3,6 +3,9 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
+import asyncio
+from utils import gsheets
+
 from database import get_all_products, get_product_by_id, add_to_cart
 
 router = Router()
@@ -116,6 +119,18 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await callback.answer("Товар добавлен в корзину!")
+
+        from database import get_product_by_id  # если ещё не импортирован
+
+        product_info = await get_product_by_id(product_id)
+        product_name = product_info['name'] if product_info else f"Товар {product_id}"
+
+        asyncio.create_task(gsheets.log_add_to_cart(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username or "",
+            product_id=product_id,
+            product_name=product_name
+        ))
 
     except Exception as e:
         logger.error(f"Ошибка добавления в корзину: {e}")

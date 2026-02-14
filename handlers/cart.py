@@ -1,8 +1,11 @@
 import logging
+import asyncio
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_cart_items, clear_cart
+from utils import gsheets
+from database import save_order
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -155,10 +158,8 @@ async def create_order(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "confirm_order")
 async def confirm_order(callback: types.CallbackQuery):
-    """Подтверждение заказа"""
     user_id = callback.from_user.id
-
-    # Получаем корзину из БД
+    username = callback.from_user.username or ""
     cart_items = await get_cart_items(user_id)
 
     if not cart_items:
@@ -168,8 +169,20 @@ async def confirm_order(callback: types.CallbackQuery):
     total = sum(item['price'] * item['quantity'] for item in cart_items)
     total_items = sum(item['quantity'] for item in cart_items)
 
-    # Очищаем корзину в БД
+    # Сохраняем заказ в БД и получаем реальный ID
+    order_id = await save_order(user_id, cart_items, total)
+
+    # Очищаем корзину
     success = await clear_cart(user_id)
+
+    # Логируем создание заказа
+    asyncio.create_task(gsheets.log_order_created(
+        user_id=user_id,
+        username=username,
+        order_id=order_id,
+        total=total,
+        items_count=total_items
+    ))
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
