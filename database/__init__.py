@@ -1,4 +1,3 @@
-# database/__init__.py
 from .connection import pool, init_pool, close_pool
 from .models import create_tables, migrate_initial_data
 from .products import get_all_products, get_product_by_id, add_product, count_products
@@ -14,4 +13,7 @@ __all__ = [
 
     # Корзина
     'get_cart_items', 'add_to_cart', 'clear_cart', 'count_carts',
+
+    # Заказы
+    'create_orders_tables', 'save_order', 'get_user_orders',
 ]

@@ -1,16 +1,16 @@
 import logging
-from database.connection import pool  # прямой импорт из модуля connection
+import database.connection as db_conn  # импортируем модуль, а не переменную
 
 logger = logging.getLogger(__name__)
 
 
 async def create_orders_tables():
     """Создаёт таблицы orders и order_items, если их нет"""
-    if pool is None:
+    if db_conn.pool is None:  # обращаемся через модуль
         logger.error("❌ Пул соединений не инициализирован! Таблицы заказов не созданы.")
         return
 
-    async with pool.acquire() as conn:
+    async with db_conn.pool.acquire() as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 id SERIAL PRIMARY KEY,
@@ -34,11 +34,11 @@ async def create_orders_tables():
 
 
 async def save_order(user_id: int, cart_items: list, total: int) -> int:
-    if pool is None:
+    if db_conn.pool is None:
         logger.error("❌ Пул соединений не инициализирован! Заказ не сохранён.")
         return 0
 
-    async with pool.acquire() as conn:
+    async with db_conn.pool.acquire() as conn:
         async with conn.transaction():
             order = await conn.fetchrow(
                 'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING id',
@@ -54,11 +54,11 @@ async def save_order(user_id: int, cart_items: list, total: int) -> int:
 
 
 async def get_user_orders(user_id: int):
-    if pool is None:
+    if db_conn.pool is None:
         logger.error("❌ Пул соединений не инициализирован! Заказы не получены.")
         return []
 
-    async with pool.acquire() as conn:
+    async with db_conn.pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT o.id, o.order_date, o.total_amount, o.status,
                    json_agg(json_build_object(
