@@ -5,6 +5,8 @@ import os
 import sys
 import socket
 from dotenv import load_dotenv
+import config
+from utils import gsheets
 
 load_dotenv()
 
@@ -34,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 # ================== ЗАЩИТА ОТ МНОЖЕСТВЕННОГО ЗАПУСКА ==================
 def check_single_instance():
-    """Проверяем, что бот не запущен уже в другом процессе"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', 9999))
@@ -48,10 +49,7 @@ def check_single_instance():
 
 # ================== ОБРАБОТЧИКИ ЗАВЕРШЕНИЯ РАБОТЫ ==================
 async def on_shutdown():
-    """Действия при завершении работы бота"""
     logger.info("🔄 Завершение работы бота...")
-
-    # Закрываем подключение к БД
     try:
         from database import close_pool
         await close_pool()
@@ -62,7 +60,6 @@ async def on_shutdown():
 
 async def main():
     try:
-        # Проверяем переменные окружения
         bot_token = os.getenv('BOT_TOKEN')
         if not bot_token:
             logger.error("❌ BOT_TOKEN не найден!")
@@ -81,30 +78,28 @@ async def main():
             logger.error(f"❌ Ошибка инициализации БД: {e}")
             raise
 
-        # ОЧИСТКА СТАРЫХ СЕССИЙ ПЕРЕД ЗАПУСКОМ
         await cleanup_old_sessions(bot_token)
         await asyncio.sleep(1)
 
-        # Инициализируем бота
         bot = Bot(token=bot_token)
         dp = Dispatcher(storage=MemoryStorage())
 
-        # Настраиваем обработчик завершения
         dp.shutdown.register(on_shutdown)
 
-        # Подключаем роутеры
         dp.include_router(products_router)
         dp.include_router(cart_router)
         dp.include_router(order_router)
         dp.include_router(admin_router)
 
-        # Настраиваем глобальные обработчики для отладки
         await setup_global_handlers(dp)
+
+        # Инициализация Google Sheets (если включено)
+        if config.GOOGLE_SHEETS_ENABLED:
+            asyncio.create_task(gsheets.init_google_sheets())
 
         # ================== ГЛАВНОЕ МЕНЮ НА КНОПКАХ ==================
         @dp.message(Command("start", "help", "menu"))
         async def unified_menu_handler(message: types.Message):
-            """ЕДИНЫЙ ОБРАБОТЧИК ГЛАВНОГО МЕНЮ"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
@@ -125,10 +120,12 @@ async def main():
             await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
             logger.info(f"📱 Пользователь {message.from_user.id} открыл главное меню")
 
+            # Логируем /start
+            asyncio.create_task(gsheets.log_start(message.from_user.id, message.from_user.username or ""))
+
         # ================== ОБРАБОТЧИКИ КНОПОК МЕНЮ ==================
         @dp.callback_query(lambda c: c.data == "go_home")
         async def go_home_handler(callback: types.CallbackQuery):
-            """ОБРАБОТЧИК КНОПКИ 'ГЛАВНАЯ'"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
@@ -151,7 +148,6 @@ async def main():
 
         @dp.callback_query(lambda c: c.data == "help_info")
         async def help_info_handler(callback: types.CallbackQuery):
-            """ОБРАБОТЧИК КНОПКИ 'ПОМОЩЬ'"""
             help_text = (
                 "❓ <b>Помощь и информация</b>\n\n"
                 "🛒 <b>Как сделать заказ:</b>\n"
@@ -175,7 +171,6 @@ async def main():
 
         @dp.callback_query(lambda c: c.data == "my_orders")
         async def my_orders_handler(callback: types.CallbackQuery):
-            """ЗАГЛУШКА ДЛЯ РАЗДЕЛА 'МОИ ЗАКАЗЫ'"""
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")]
             ])
@@ -195,15 +190,12 @@ async def main():
             logger.info(f"📝 Пользователь {callback.from_user.id} открыл раздел 'Мои заказы'")
 
         # ================== ЗАПУСК И ПРОВЕРКИ ==================
-        # Проверяем подключение
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
 
-        # Удаляем вебхуки
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("✅ Вебхуки удалены")
 
-        # Запускаем поллинг
         logger.info("⏳ Запуск polling...")
         await dp.start_polling(bot)
 
@@ -212,20 +204,15 @@ async def main():
         raise
 
 
-# ================== ТОЧКА ВХОДА ==================
 if __name__ == '__main__':
-    # Проверка на множественный запуск
     if not check_single_instance():
         sys.exit(1)
 
-    # Проверяем, запущен ли на Render
     is_render = os.environ.get('ON_RENDER', '').lower() == 'true'
 
     if is_render:
         logger.info("🌐 Запуск на Render")
-        # Запускаем HTTP сервер в отдельном потоке
         import threading
-
         http_thread = threading.Thread(target=run_http_server, daemon=True)
         http_thread.start()
     else:

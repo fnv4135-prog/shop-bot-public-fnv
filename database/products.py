@@ -31,6 +31,18 @@ async def get_product_by_id(product_id: int):
         return dict(row) if row else None
 
 
+async def get_product_by_id(product_id: int):
+    """Получить товар по ID"""
+    pool = await get_pool()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, name, description, price, image_url, category FROM products WHERE id = $1 AND is_active = TRUE",
+            product_id
+        )
+        return dict(row) if row else None
+
+
 async def create_product(name: str, description: str, price: int, image_url: str = None):
     """Создать новый товар"""
     pool = await get_pool()
