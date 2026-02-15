@@ -10,10 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> bool:
-    """Добавить товар в корзину"""
     try:
-        # Убедимся, что пользователь есть в таблице users
-        await ensure_user(telegram_id)
+        # Получаем внутренний id пользователя
+        user_id = await ensure_user(telegram_id)
+        if not user_id:
+            logger.error(f"❌ Не удалось получить внутренний id для пользователя {telegram_id}")
+            return False
 
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -22,9 +24,9 @@ async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> b
                 VALUES ($1, $2, $3)
                 ON CONFLICT (user_id, product_id) 
                 DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity
-            """, telegram_id, product_id, quantity)
+            """, user_id, product_id, quantity)
 
-            logger.info(f"🛒 Товар {product_id} добавлен в корзину пользователя {telegram_id}")
+            logger.info(f"🛒 Товар {product_id} добавлен в корзину пользователя {telegram_id} (user_id={user_id})")
             return True
 
     except Exception as e:
@@ -33,10 +35,10 @@ async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> b
 
 
 async def get_cart_items(telegram_id: int):
-    """Получить содержимое корзины пользователя"""
     try:
-        # Убедимся, что пользователь есть
-        await ensure_user(telegram_id)
+        user_id = await ensure_user(telegram_id)
+        if not user_id:
+            return []
 
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -46,7 +48,7 @@ async def get_cart_items(telegram_id: int):
                 JOIN products p ON ci.product_id = p.id
                 WHERE ci.user_id = $1
                 ORDER BY ci.added_at
-            """, telegram_id)
+            """, user_id)
 
             return [dict(item) for item in items]
 
@@ -56,16 +58,16 @@ async def get_cart_items(telegram_id: int):
 
 
 async def clear_cart(telegram_id: int) -> bool:
-    """Очистить корзину пользователя"""
     try:
-        # Убедимся, что пользователь есть
-        await ensure_user(telegram_id)
+        user_id = await ensure_user(telegram_id)
+        if not user_id:
+            return False
 
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM cart_items WHERE user_id = $1",
-                telegram_id
+                user_id
             )
 
             logger.info(f"🗑 Корзина пользователя {telegram_id} очищена")
@@ -77,9 +79,7 @@ async def clear_cart(telegram_id: int) -> bool:
 
 
 async def count_carts():
-    """Подсчитать количество активных корзин (пользователей с товарами в корзине)"""
     pool = await get_pool()
-
     async with pool.acquire() as conn:
         count = await conn.fetchval(
             "SELECT COUNT(DISTINCT user_id) FROM cart_items"
