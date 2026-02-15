@@ -79,3 +79,21 @@ async def get_user_orders(user_id: int):
             ORDER BY o.order_date DESC
         ''', user_id)
         return rows
+
+async def get_all_orders_stats():
+    """Возвращает общую статистику по всем заказам"""
+    if db_conn.pool is None:
+        logger.error("❌ Пул соединений не инициализирован! Статистика не получена.")
+        return {"total_orders": 0, "total_revenue": 0, "completed_orders": 0, "new_orders": 0}
+
+    async with db_conn.pool.acquire() as conn:
+        total = await conn.fetchval('SELECT COUNT(*) FROM orders')
+        revenue = await conn.fetchval('SELECT COALESCE(SUM(total_amount), 0) FROM orders')
+        completed = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'выполнен'")
+        new = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'новый'")
+        return {
+            "total_orders": total,
+            "total_revenue": revenue,
+            "completed_orders": completed,
+            "new_orders": new
+        }

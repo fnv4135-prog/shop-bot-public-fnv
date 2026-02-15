@@ -1,10 +1,12 @@
 import logging
 import asyncio
+import config
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_cart_items, clear_cart, save_order
 from utils import gsheets
+from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -183,6 +185,25 @@ async def confirm_order(callback: types.CallbackQuery):
 
         # Очищаем корзину
         success = await clear_cart(user_id)
+
+        # Уведомление админу
+        if success and not config.is_demo_mode():  # если не демо-режим
+            try:
+                # Формируем сообщение
+                items_list = "\n".join(
+                    [f"  • {item['name']} x{item['quantity']} - {item['price']}₽" for item in cart_items])
+                admin_message = (
+                    f"🆕 <b>Новый заказ #{order_id}</b>\n\n"
+                    f"👤 Пользователь: @{callback.from_user.username} (ID: {user_id})\n"
+                    f"💰 Сумма: {total}₽\n"
+                    f"📦 Товары:\n{items_list}\n\n"
+                    f"Статус: ожидает обработки"
+                )
+                # Отправляем админу (ID из config)
+                await callback.bot.send_message(ADMIN_ID, admin_message, parse_mode="HTML")
+                logger.info(f"📨 Уведомление о заказе #{order_id} отправлено админу")
+            except Exception as e:
+                logger.error(f"❌ Не удалось отправить уведомление админу: {e}")
 
         # Логируем в Google Sheets (фоново)
         asyncio.create_task(gsheets.log_order_created(

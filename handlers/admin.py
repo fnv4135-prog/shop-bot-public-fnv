@@ -255,21 +255,26 @@ async def manage_products(callback: types.CallbackQuery):
 # === СТАТИСТИКА ===
 @router.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
-    """Статистика магазина"""
     if not is_admin(callback.from_user.id):
         await callback.answer("Доступ запрещён", show_alert=True)
         return
 
     try:
-        products_count = await count_products()
-        # Если есть функция count_carts в database.cart, можно добавить
-        # carts_count = await count_carts()
+        from database import get_all_products, count_carts  # и другие функции подсчёта
+        from database.orders import get_all_orders_stats  # эту функцию мы создадим ниже
+
+        products_count = await count_products()  # должно быть в database/products.py
+        carts_count = await count_carts()        # должно быть в database/cart.py
+        orders_stats = await get_all_orders_stats()  # создадим
 
         stats_text = (
             f"📊 <b>Статистика магазина</b>\n\n"
             f"📦 Товаров в каталоге: {products_count}\n"
-            # f"🛒 Активных корзин: {carts_count}\n\n"
-            f"\n<i>Детальная статистика в разработке...</i>"
+            f"🛒 Активных корзин: {carts_count}\n"
+            f"📝 Всего заказов: {orders_stats['total_orders']}\n"
+            f"💰 Выручка: {orders_stats['total_revenue']}₽\n"
+            f"✅ Выполнено заказов: {orders_stats['completed_orders']}\n"
+            f"🆕 Новых заказов: {orders_stats['new_orders']}\n"
         )
 
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -281,10 +286,7 @@ async def admin_stats(callback: types.CallbackQuery):
 
     except Exception as e:
         logger.error(f"Ошибка получения статистики: {e}")
-        await callback.message.edit_text(
-            f"❌ <b>Ошибка получения статистики:</b>\n\n{str(e)}",
-            parse_mode="HTML"
-        )
+        await callback.message.edit_text("❌ Ошибка при загрузке статистики")
 
     await callback.answer()
 
