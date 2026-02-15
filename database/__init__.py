@@ -10,5 +10,5 @@ __all__ = [
     'get_all_products', 'get_product_by_id', 'add_product', 'count_products',
     'get_cart_items', 'add_to_cart', 'clear_cart', 'count_carts',
     'create_orders_tables', 'save_order', 'get_user_orders', 'get_all_orders_stats',
-    'create_users_table', 'ensure_user',
+    'create_users_table', 'ensure_user', 'get_user_internal_id',
 ]
