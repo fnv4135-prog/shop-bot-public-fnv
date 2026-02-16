@@ -1,55 +1,139 @@
+"""
+handlers/products.py - Иерархический каталог товаров с категориями
+"""
+import logging
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import logging
-
-import asyncio
-from utils import gsheets
-
-from database import get_all_products, get_product_by_id, add_to_cart
+from database import get_products_by_category, add_to_cart
+from database.categories import get_category_tree, get_category_children, get_category_name
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
-@router.message(Command("products"))
-async def show_products(message: types.Message):
-    """Показать каталог товаров из БД"""
-    logger.info(f"📦 Пользователь {message.from_user.id} запросил каталог")
+async def get_category_keyboard(category_id: int = None):
+    """
+    Строит клавиатуру для отображения подкатегорий или товаров.
+    Если category_id = None, показываем корневые категории.
+    """
+    if category_id is None:
+        # Корневые категории
+        categories = await get_category_tree(parent_id=None, include_inactive=False)
+        if not categories:
+            return None, "📭 Каталог временно пуст"
+        kb = []
+        for cat in categories:
+            kb.append([InlineKeyboardButton(
+                text=f"📁 {cat['name']}",
+                callback_data=f"cat_{cat['id']}"
+            )])
+        kb.append([InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")])
+        return InlineKeyboardMarkup(inline_keyboard=kb), "📁 Выберите категорию:"
 
-    # Получаем товары из БД (АСИНХРОННО!)
-    products = await get_all_products()
+    else:
+        # Получаем название текущей категории
+        cat_name = await get_category_name(category_id)
+        if not cat_name:
+            return None, "❌ Категория не найдена"
 
+        # Получаем подкатегории
+        subcats = await get_category_children(category_id, include_inactive=False)
+        # Получаем товары в этой категории
+        products = await get_products_by_category(category_id, include_inactive=False)
+
+        kb = []
+
+        # Если есть подкатегории, показываем их
+        for sub in subcats:
+            kb.append([InlineKeyboardButton(
+                text=f"📂 {sub['name']}",
+                callback_data=f"cat_{sub['id']}"
+            )])
+
+        # Если есть товары, добавляем кнопку для их просмотра
+        if products:
+            kb.append([InlineKeyboardButton(
+                text="🛍 Товары в этой категории",
+                callback_data=f"cat_products_{category_id}"
+            )])
+
+        # Кнопка "Назад"
+        # Определяем родительскую категорию
+        # (упрощённо: пока всегда назад в корень, но можно улучшить)
+        kb.append([InlineKeyboardButton(
+            text="🔙 Назад к категориям",
+            callback_data="show_catalog"
+        )])
+
+        return InlineKeyboardMarkup(inline_keyboard=kb), f"📁 {cat_name}:"
+
+
+async def get_products_keyboard(category_id: int):
+    """Показывает список товаров в категории"""
+    products = await get_products_by_category(category_id, include_inactive=False)
     if not products:
-        await message.answer("📭 Каталог товаров пуст")
-        return
+        return None, "🛒 В этой категории пока нет товаров"
 
-    # Создаём кнопки для каждого товара
-    keyboard_buttons = []
-    for product in products:
-        button = InlineKeyboardButton(
-            text=f"{product['name']} - {product['price']} руб.",
-            callback_data=f"product_{product['id']}"
-        )
-        keyboard_buttons.append([button])
+    kb = []
+    for p in products:
+        kb.append([InlineKeyboardButton(
+            text=f"{p['name']} - {p['price']}₽",
+            callback_data=f"product_{p['id']}"
+        )])
 
-    # Добавляем кнопку возврата в меню
-    keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="go_home")])
+    # Кнопка назад к подкатегориям
+    kb.append([InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data=f"cat_{category_id}"
+    )])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    return InlineKeyboardMarkup(inline_keyboard=kb), f"🛒 Товары в категории:"
 
-    await message.answer(
-        "🛒 <b>Каталог товаров:</b>\n\n"
-        "Выберите товар для добавления в корзину:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+
+@router.message(Command("products"))
+async def cmd_products(message: types.Message):
+    """Команда /products - показать каталог"""
+    await show_catalog(message)
 
 
 @router.callback_query(lambda c: c.data == "show_catalog")
-async def show_catalog_callback(callback: types.CallbackQuery):
-    """Показать каталог при нажатии на кнопку 'Каталог товаров'"""
-    await show_products(callback.message)
+async def show_catalog(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Каталог'"""
+    await callback.message.delete()  # удаляем старое сообщение, чтобы не копились
+    await show_catalog(callback.message)
+    await callback.answer()
+
+
+async def show_catalog(message: types.Message):
+    """Показать корневые категории"""
+    keyboard, text = await get_category_keyboard()
+    if keyboard:
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await message.answer(text)
+
+
+@router.callback_query(lambda c: c.data.startswith("cat_"))
+async def process_category(callback: types.CallbackQuery):
+    """Обработчик выбора категории"""
+    data = callback.data.split("_")
+    if len(data) == 2:
+        # Просто выбор категории
+        cat_id = int(data[1])
+        keyboard, text = await get_category_keyboard(cat_id)
+        if keyboard:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text(text)
+    elif len(data) == 3 and data[1] == "products":
+        # Просмотр товаров в категории
+        cat_id = int(data[2])
+        keyboard, text = await get_products_keyboard(cat_id)
+        if keyboard:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text(text)
     await callback.answer()
 
 
@@ -58,14 +142,14 @@ async def show_product_detail(callback: types.CallbackQuery):
     """Показать детали товара и кнопку добавления в корзину"""
     product_id = int(callback.data.split("_")[1])
 
-    # Получаем товар из БД
+    from database import get_product_by_id
     product = await get_product_by_id(product_id)
 
     if not product:
         await callback.answer("Товар не найден", show_alert=True)
         return
 
-    # Создаем клавиатуру
+    # Создаём клавиатуру
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="➕ Добавить в корзину",
@@ -73,19 +157,15 @@ async def show_product_detail(callback: types.CallbackQuery):
             InlineKeyboardButton(text="🛒 В корзину",
                                  callback_data="view_cart")
         ],
-        [InlineKeyboardButton(text="⬅️ Назад к каталогу",
-                              callback_data="show_catalog")]
+        [InlineKeyboardButton(text="🔙 Назад к товарам",
+                              callback_data=f"cat_products_{product['category_id']}")]
     ])
 
-    # Формируем описание
     description = product.get('description', "Описание отсутствует")
-    category = product.get('category', 'Без категории')
-
     await callback.message.edit_text(
         f"📱 <b>{product['name']}</b>\n\n"
         f"📝 <b>Описание:</b> {description}\n"
-        f"💰 <b>Цена:</b> {product['price']} руб.\n"
-        f"📦 <b>Категория:</b> {category}\n\n"
+        f"💰 <b>Цена:</b> {product['price']} руб.\n\n"
         f"🛒 <i>Добавьте товар в корзину:</i>",
         reply_markup=keyboard,
         parse_mode="HTML"
@@ -95,14 +175,26 @@ async def show_product_detail(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data.startswith("add_to_cart_"))
 async def add_to_cart_handler(callback: types.CallbackQuery):
-    """Обработчик добавления товара в корзину"""
+    """Добавление товара в корзину"""
     product_id = int(callback.data.split("_")[3])
 
     try:
-        # Используем функцию из database.cart
         await add_to_cart(callback.from_user.id, product_id, 1)
 
-        # Кнопки для продолжения
+        # Получаем название товара для лога
+        from database import get_product_by_id
+        product = await get_product_by_id(product_id)
+        product_name = product['name'] if product else f"Товар {product_id}"
+
+        from utils import gsheets
+        import asyncio
+        asyncio.create_task(gsheets.log_add_to_cart(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username or "",
+            product_id=product_id,
+            product_name=product_name
+        ))
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🛒 Перейти в корзину",
@@ -119,18 +211,6 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await callback.answer("Товар добавлен в корзину!")
-
-        from database import get_product_by_id  # если ещё не импортирован
-
-        product_info = await get_product_by_id(product_id)
-        product_name = product_info['name'] if product_info else f"Товар {product_id}"
-
-        asyncio.create_task(gsheets.log_add_to_cart(
-            user_id=callback.from_user.id,
-            username=callback.from_user.username or "",
-            product_id=product_id,
-            product_name=product_name
-        ))
 
     except Exception as e:
         logger.error(f"Ошибка добавления в корзину: {e}")
