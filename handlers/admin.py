@@ -1,12 +1,13 @@
+import asyncio
 from aiogram import Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import logging
-
-# Исправленный импорт - все из database
 from database import get_all_products, count_products, count_carts, add_product
+from database.categories import (get_all_categories_flat, has_products, has_subcategories,
+                                 create_category, update_category, delete_category)
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Константы для callback_data
 CALLBACK_CATEGORIES = "admin_categories"
@@ -15,11 +16,28 @@ CALLBACK_CATEGORY_EDIT = "admin_category_edit_"
 CALLBACK_CATEGORY_DELETE = "admin_category_del_"
 CALLBACK_CATEGORY_BACK = "admin_categories_back"
 CALLBACK_CATEGORY_ADD_CANCEL = "admin_category_add_cancel"
+CALLBACK_CAT_DETAIL = "admin_cat_detail_"
+CALLBACK_CAT_EDIT = "admin_cat_edit_"
+CALLBACK_CAT_DELETE = "admin_cat_delete_"
+CALLBACK_CAT_DELETE_CONFIRM = "admin_cat_delete_confirm_"
+CALLBACK_CAT_EDIT_NAME = "admin_cat_edit_name"
+CALLBACK_CAT_EDIT_SORT = "admin_cat_edit_sort"
+CALLBACK_CAT_EDIT_ACTIVE = "admin_cat_edit_active"
+CALLBACK_CAT_EDIT_PARENT = "admin_cat_edit_parent"
+CALLBACK_CAT_EDIT_BACK = "admin_cat_edit_back"
+CALLBACK_CAT_EDIT_SAVE = "admin_cat_edit_save"
 
 class AddCategory(StatesGroup):
     waiting_for_name = State()
     waiting_for_parent = State()
     waiting_for_sort = State()
+    waiting_for_active = State()
+
+class EditCategory(StatesGroup):
+    choosing_field = State()
+    waiting_for_name = State()
+    waiting_for_sort = State()
+    waiting_for_parent = State()
     waiting_for_active = State()
 
 router = Router()
@@ -319,20 +337,107 @@ async def admin_categories(callback: types.CallbackQuery):
         cats = await get_all_categories_flat(include_inactive=True)
         if not cats:
             text = "📂 Категории отсутствуют."
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Добавить категорию", callback_data=CALLBACK_CATEGORY_ADD)],
+                [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")]
+            ])
         else:
             text = "📂 **Список категорий:**\n\n"
+            kb_buttons = []
             for cat in cats:
+                # Показываем название и ID
                 active = "✅" if cat['is_active'] else "❌"
-                text += f"{cat['path']} (id={cat['id']}) {active}\n"
+                # Делаем категорию кликабельной
+                kb_buttons.append([InlineKeyboardButton(
+                    text=f"{cat['name']} (id={cat['id']}) {active}",
+                    callback_data=f"{CALLBACK_CAT_DETAIL}{cat['id']}"
+                )])
+            # Добавляем кнопку добавления и возврата
+            kb_buttons.append([InlineKeyboardButton(text="➕ Добавить категорию", callback_data=CALLBACK_CATEGORY_ADD)])
+            kb_buttons.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Добавить категорию", callback_data=CALLBACK_CATEGORY_ADD)],
-            [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")]
-        ])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
     except Exception as e:
         logger.exception("Ошибка при загрузке категорий")
         await callback.message.edit_text("❌ Ошибка загрузки категорий")
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_CAT_DETAIL))
+async def category_detail(callback: types.CallbackQuery):
+    cat_id = int(callback.data.split("_")[-1])
+    from database.categories import get_all_categories_flat, has_products, has_subcategories
+
+    try:
+        # Получаем данные о категории (можно сделать отдельную функцию get_category_by_id)
+        cats = await get_all_categories_flat(include_inactive=True)
+        cat = next((c for c in cats if c['id'] == cat_id), None)
+        if not cat:
+            await callback.answer("Категория не найдена", show_alert=True)
+            return
+
+        has_products_flag = await has_products(cat_id)
+        has_subs_flag = await has_subcategories(cat_id)
+
+        text = (
+            f"📁 **Категория:** {cat['name']}\n"
+            f"🆔 ID: {cat['id']}\n"
+            f"📊 Активна: {'✅' if cat['is_active'] else '❌'}\n"
+            f"🔢 Порядок: {cat['sort_order']}\n"
+            f"👆 Родитель: {cat['parent_id'] if cat['parent_id'] else 'корневая'}\n"
+            f"📦 Товаров: {'есть' if has_products_flag else 'нет'}\n"
+            f"📂 Подкатегорий: {'есть' if has_subs_flag else 'нет'}"
+        )
+
+        kb = [
+            [InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"{CALLBACK_CAT_EDIT}{cat_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад к списку", callback_data=CALLBACK_CATEGORIES)]
+        ]
+        # Кнопка удаления только если нет товаров и подкатегорий
+        if not has_products_flag and not has_subs_flag:
+            kb.insert(0, [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"{CALLBACK_CAT_DELETE}{cat_id}")])
+
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
+    except Exception as e:
+        logger.exception("Ошибка при загрузке деталей категории")
+        await callback.answer("Ошибка", show_alert=True)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_CAT_DELETE))
+async def confirm_delete_category(callback: types.CallbackQuery):
+    cat_id = int(callback.data.split("_")[-1])
+    # Запрашиваем подтверждение
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"{CALLBACK_CAT_DELETE_CONFIRM}{cat_id}")],
+        [InlineKeyboardButton(text="❌ Нет, отмена", callback_data=f"{CALLBACK_CAT_DETAIL}{cat_id}")]
+    ])
+    await callback.message.edit_text(
+        f"⚠️ Вы уверены, что хотите удалить категорию с ID {cat_id}?\n"
+        "Это действие необратимо.",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_CAT_DELETE_CONFIRM))
+async def delete_category(callback: types.CallbackQuery):
+    cat_id = int(callback.data.split("_")[-1])
+    from database.categories import delete_category
+    success = await delete_category(cat_id)
+    if success:
+        await callback.message.edit_text("✅ Категория удалена.")
+        # Возвращаемся к списку
+        await asyncio.sleep(1)
+        await admin_categories(callback)
+    else:
+        await callback.message.edit_text("❌ Не удалось удалить категорию (возможно, есть товары или подкатегории).")
+        await asyncio.sleep(1)
+        # Возвращаемся к деталям
+        # Вызовем category_detail с новым callback
+        # Можно просто вернуться в список
+        await admin_categories(callback)
     await callback.answer()
 
 
@@ -349,6 +454,110 @@ async def start_add_category(callback: types.CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_CAT_EDIT))
+async def edit_category_start(callback: types.CallbackQuery, state: FSMContext):
+    cat_id = int(callback.data.split("_")[-1])
+    # Сохраняем ID в состоянии
+    await state.update_data(cat_id=cat_id)
+    # Показываем меню выбора поля для редактирования
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Название", callback_data=CALLBACK_CAT_EDIT_NAME)],
+        [InlineKeyboardButton(text="🔢 Порядок сортировки", callback_data=CALLBACK_CAT_EDIT_SORT)],
+        [InlineKeyboardButton(text="✅ Активность", callback_data=CALLBACK_CAT_EDIT_ACTIVE)],
+        [InlineKeyboardButton(text="👆 Родительская категория", callback_data=CALLBACK_CAT_EDIT_PARENT)],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"{CALLBACK_CAT_DETAIL}{cat_id}")]
+    ])
+    await callback.message.edit_text("Выберите, что хотите изменить:", reply_markup=kb)
+    await state.set_state(EditCategory.choosing_field)
+    await callback.answer()
+
+
+@router.callback_query(EditCategory.choosing_field, F.data == CALLBACK_CAT_EDIT_NAME)
+async def edit_category_name(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите новое название категории:")
+    await state.set_state(EditCategory.waiting_for_name)
+    await callback.answer()
+
+
+@router.message(EditCategory.waiting_for_name)
+async def process_edit_name(message: types.Message, state: FSMContext):
+    new_name = message.text
+    data = await state.get_data()
+    cat_id = data['cat_id']
+    from database.categories import update_category
+    await update_category(cat_id, name=new_name)
+    await message.answer("✅ Название обновлено.")
+    # Возвращаемся к деталям (создадим новый callback)
+    # Создаём новый callback-запрос для перехода к деталям
+    # Лучше сбросить состояние и вернуться в админку
+    await state.clear()
+    # Создаём фейковый callback-запрос для вызова category_detail
+    # Можно просто отправить команду вручную, но для простоты вернёмся в список
+    # await admin_categories(message)  # нельзя, потому что message не callback
+    # Лучше просто отправить сообщение с кнопкой "Назад"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К списку категорий", callback_data=CALLBACK_CATEGORIES)]
+    ])
+    await message.answer("Что дальше?", reply_markup=kb)
+
+
+# Аналогично для сортировки, активности, родителя
+@router.callback_query(EditCategory.choosing_field, F.data == CALLBACK_CAT_EDIT_SORT)
+async def edit_category_sort(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите новый порядок сортировки (целое число):")
+    await state.set_state(EditCategory.waiting_for_sort)
+    await callback.answer()
+
+
+@router.message(EditCategory.waiting_for_sort)
+async def process_edit_sort(message: types.Message, state: FSMContext):
+    try:
+        new_sort = int(message.text)
+    except ValueError:
+        await message.answer("❌ Введите целое число!")
+        return
+    data = await state.get_data()
+    cat_id = data['cat_id']
+    from database.categories import update_category
+    await update_category(cat_id, sort_order=new_sort)
+    await message.answer("✅ Порядок сортировки обновлён.")
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К списку категорий", callback_data=CALLBACK_CATEGORIES)]
+    ])
+    await message.answer("Что дальше?", reply_markup=kb)
+
+
+@router.callback_query(EditCategory.choosing_field, F.data == CALLBACK_CAT_EDIT_ACTIVE)
+async def edit_category_active(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Активна", callback_data="active_true"),
+         InlineKeyboardButton(text="❌ Неактивна", callback_data="active_false")]
+    ])
+    await callback.message.edit_text("Выберите статус активности:", reply_markup=kb)
+    await state.set_state(EditCategory.waiting_for_active)
+    await callback.answer()
+
+
+@router.callback_query(EditCategory.waiting_for_active, F.data.in_({"active_true", "active_false"}))
+async def process_edit_active(callback: types.CallbackQuery, state: FSMContext):
+    is_active = (callback.data == "active_true")
+    data = await state.get_data()
+    cat_id = data['cat_id']
+    from database.categories import update_category
+    await update_category(cat_id, is_active=is_active)
+    await callback.message.edit_text("✅ Статус активности обновлён.")
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ К списку категорий", callback_data=CALLBACK_CATEGORIES)]
+    ])
+    await callback.message.edit_text("Что дальше?", reply_markup=kb)
+    await callback.answer()
+
+
+# Для родителя можно сделать выбор из списка, как при создании. Это добавим позже.
 
 
 @router.message(AddCategory.waiting_for_name)
