@@ -4,6 +4,7 @@ from .products import get_all_products, get_product_by_id, add_product, count_pr
 from .cart import get_cart_items, add_to_cart, clear_cart, count_carts
 from .orders import create_orders_tables, save_order, get_user_orders, get_all_orders_stats
 from .users import create_users_table, ensure_user, get_user_internal_id
+from .categories import get_category_tree, get_category_children, get_products_by_category, get_category_name
 
 __all__ = [
     'init_pool', 'close_pool', 'create_tables', 'migrate_initial_data',
@@ -11,4 +12,5 @@ __all__ = [
     'get_cart_items', 'add_to_cart', 'clear_cart', 'count_carts',
     'create_orders_tables', 'save_order', 'get_user_orders', 'get_all_orders_stats',
     'create_users_table', 'ensure_user', 'get_user_internal_id',
+    'get_category_tree', 'get_category_children', 'get_products_by_category', 'get_category_name'
 ]

@@ -291,6 +291,34 @@ async def admin_stats(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@router.message(Command("test_cats"))
+async def test_categories(message: types.Message):
+    """Тестовая команда для проверки структуры категорий (только для админа)"""
+    if not is_admin(message.from_user.id):
+        return
+
+    from database.categories import get_category_tree
+
+    try:
+        tree = await get_category_tree(include_inactive=True)
+        # Превращаем дерево в читаемый текст
+        result = "🌳 **Дерево категорий:**\n\n"
+
+        def format_tree(cats, level=0):
+            text = ""
+            for cat in cats:
+                prefix = "  " * level + "• "
+                text += f"{prefix}{cat['name']} (id={cat['id']}, active={cat['is_active']})\n"
+                if cat.get('children'):
+                    text += format_tree(cat['children'], level + 1)
+            return text
+
+        result += format_tree(tree)
+        await message.answer(result, parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        logger.exception("Ошибка в test_categories")
+
 # === ВОЗВРАТ В АДМИНКУ ===
 @router.callback_query(F.data == "admin_back")
 async def admin_back(callback: types.CallbackQuery):
