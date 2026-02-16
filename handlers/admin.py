@@ -2,10 +2,25 @@ from aiogram import Router, types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import logging
 
 # Исправленный импорт - все из database
 from database import get_all_products, count_products, count_carts, add_product
+
+# Константы для callback_data
+CALLBACK_CATEGORIES = "admin_categories"
+CALLBACK_CATEGORY_ADD = "admin_category_add"
+CALLBACK_CATEGORY_EDIT = "admin_category_edit_"
+CALLBACK_CATEGORY_DELETE = "admin_category_del_"
+CALLBACK_CATEGORY_BACK = "admin_categories_back"
+CALLBACK_CATEGORY_ADD_CANCEL = "admin_category_add_cancel"
+
+class AddCategory(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_parent = State()
+    waiting_for_sort = State()
+    waiting_for_active = State()
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -51,6 +66,7 @@ async def cmd_admin(message: types.Message):
         [types.InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product")],
         [types.InlineKeyboardButton(text="📝 Управление товарами", callback_data="admin_manage_products")],
         [types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [types.InlineKeyboardButton(text="📂 Управление категориями", callback_data=CALLBACK_CATEGORIES)],
         [types.InlineKeyboardButton(text="🏠 В главное меню", callback_data="go_home")]
     ])
 
@@ -288,6 +304,126 @@ async def admin_stats(callback: types.CallbackQuery):
         logger.error(f"Ошибка получения статистики: {e}")
         await callback.message.edit_text("❌ Ошибка при загрузке статистики")
 
+    await callback.answer()
+
+
+@router.callback_query(F.data == CALLBACK_CATEGORIES)
+async def admin_categories(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    from database.categories import get_all_categories_flat
+
+    try:
+        cats = await get_all_categories_flat(include_inactive=True)
+        if not cats:
+            text = "📂 Категории отсутствуют."
+        else:
+            text = "📂 **Список категорий:**\n\n"
+            for cat in cats:
+                active = "✅" if cat['is_active'] else "❌"
+                text += f"{cat['path']} (id={cat['id']}) {active}\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить категорию", callback_data=CALLBACK_CATEGORY_ADD)],
+            [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")]
+        ])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    except Exception as e:
+        logger.exception("Ошибка при загрузке категорий")
+        await callback.message.edit_text("❌ Ошибка загрузки категорий")
+    await callback.answer()
+
+
+@router.callback_query(F.data == CALLBACK_CATEGORY_ADD)
+async def start_add_category(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AddCategory.waiting_for_name)
+    await callback.message.edit_text(
+        "➕ **Добавление новой категории**\n\n"
+        "Введите название категории:",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.message(AddCategory.waiting_for_name)
+async def process_category_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    # Предложим выбрать родительскую категорию (можно пропустить)
+    from database.categories import get_all_categories_flat
+    cats = await get_all_categories_flat(include_inactive=True)
+    kb = []
+    # Добавим вариант "Корневая категория"
+    kb.append([InlineKeyboardButton(text="📁 Корневая категория", callback_data="parent_none")])
+    for cat in cats:
+        kb.append([InlineKeyboardButton(text=cat['path'], callback_data=f"parent_{cat['id']}")])
+    kb.append([InlineKeyboardButton(text="🔙 Отмена", callback_data=CALLBACK_CATEGORY_ADD_CANCEL)])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=kb)
+    await state.set_state(AddCategory.waiting_for_parent)
+    await message.answer("Выберите родительскую категорию (или корневую):", reply_markup=keyboard)
+
+
+@router.callback_query(AddCategory.waiting_for_parent, F.data.startswith("parent_"))
+async def process_category_parent(callback: types.CallbackQuery, state: FSMContext):
+    data = callback.data
+    if data == "parent_none":
+        parent_id = None
+    else:
+        parent_id = int(data.split("_")[1])
+    await state.update_data(parent_id=parent_id)
+    await callback.message.edit_text("Введите порядок сортировки (число, чем меньше, тем выше):")
+    await state.set_state(AddCategory.waiting_for_sort)
+    await callback.answer()
+
+
+@router.message(AddCategory.waiting_for_sort)
+async def process_category_sort(message: types.Message, state: FSMContext):
+    try:
+        sort_order = int(message.text)
+    except ValueError:
+        await message.answer("❌ Введите целое число!")
+        return
+    await state.update_data(sort_order=sort_order)
+    # Спросим, активна ли категория
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да", callback_data="active_true"),
+         InlineKeyboardButton(text="❌ Нет", callback_data="active_false")]
+    ])
+    await message.answer("Категория активна?", reply_markup=kb)
+    await state.set_state(AddCategory.waiting_for_active)
+
+
+@router.callback_query(AddCategory.waiting_for_active, F.data.in_({"active_true", "active_false"}))
+async def process_category_active(callback: types.CallbackQuery, state: FSMContext):
+    is_active = (callback.data == "active_true")
+    data = await state.get_data()
+    name = data['name']
+    parent_id = data.get('parent_id')
+    sort_order = data.get('sort_order', 0)
+
+    from database.categories import create_category
+    try:
+        cat_id = await create_category(name, parent_id, sort_order, is_active)
+        await callback.message.edit_text(f"✅ Категория '{name}' создана с ID {cat_id}.")
+        # Возвращаемся к списку категорий
+        await admin_categories(callback)
+    except Exception as e:
+        logger.exception("Ошибка создания категории")
+        await callback.message.edit_text("❌ Ошибка при создании категории.")
+    await state.clear()
+    await callback.answer()
+
+
+# Обработчик отмены
+@router.callback_query(F.data == CALLBACK_CATEGORY_ADD_CANCEL)
+async def cancel_add_category(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await admin_categories(callback)
     await callback.answer()
 
 
