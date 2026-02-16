@@ -43,6 +43,24 @@ async def get_product_by_id(product_id: int):
         return dict(row) if row else None
 
 
+async def search_products(query: str, limit: int = 20):
+    """
+    Ищет товары по названию (регистронезависимо, с поддержкой русских символов)
+    Возвращает список товаров.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Используем ILIKE для регистронезависимого поиска
+        rows = await conn.fetch('''
+            SELECT id, name, price, description
+            FROM products
+            WHERE is_active AND name ILIKE $1
+            ORDER BY name
+            LIMIT $2
+        ''', f'%{query}%', limit)
+        return [dict(row) for row in rows]
+
+
 async def create_product(name: str, description: str, price: int, image_url: str = None):
     """Создать новый товар"""
     pool = await get_pool()

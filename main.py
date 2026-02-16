@@ -19,6 +19,7 @@ from handlers.admin import router as admin_router
 from handlers.products import router as products_router
 from handlers.cart import router as cart_router
 from handlers.order import router as order_router
+from handlers.search import router as search_router
 
 # ================== ИМПОРТ УТИЛИТ ==================
 from utils.http_server import run_http_server
@@ -97,6 +98,7 @@ async def main():
         dp.include_router(cart_router)
         dp.include_router(order_router)
         dp.include_router(admin_router)
+        dp.include_router(search_router)
 
         await setup_global_handlers(dp)
 
@@ -110,6 +112,7 @@ async def main():
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
+                [types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],
                  types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
@@ -118,6 +121,7 @@ async def main():
                 "🏪 <b>Добро пожаловать в магазин электроники FN-Tech!</b>\n\n"
                 "🎯 <b>Выберите действие:</b>\n\n"
                 "• <b>🛒 Каталог</b> — выбор товаров по категориям\n"
+                "• <b>📦 Поиск товаров</b> — поиск товара без перехода по кнопкам\n"
                 "• <b>📦 Корзина</b> — просмотр и оформление заказа\n"
                 "• <b>📝 Мои заказы</b> — история ваших покупок\n"
                 "• <b>❓ Помощь</b> — информация о доставке и оплате\n\n"

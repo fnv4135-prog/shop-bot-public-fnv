@@ -16,12 +16,14 @@ async def get_category_keyboard(category_id: int = None):
     """
     Строит клавиатуру для отображения подкатегорий или товаров.
     Если category_id = None, показываем корневые категории.
+    Если у категории есть подкатегории, показываем их (товары не показываем).
+    Если подкатегорий нет, сразу показываем товары (вызываем get_products_keyboard).
     """
     if category_id is None:
         # Корневые категории
         categories = await get_category_tree(parent_id=None, include_inactive=False)
         if not categories:
-            return None, "📭 Каталог временно пуст"
+            return None, "📭 Каталог временно пуст", None
         kb = []
         for cat in categories:
             kb.append([InlineKeyboardButton(
@@ -29,44 +31,29 @@ async def get_category_keyboard(category_id: int = None):
                 callback_data=f"cat_{cat['id']}"
             )])
         kb.append([InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")])
-        return InlineKeyboardMarkup(inline_keyboard=kb), "📁 Выберите категорию:"
+        return InlineKeyboardMarkup(inline_keyboard=kb), "📁 Выберите категорию:", None
 
     else:
-        # Получаем название текущей категории
-        cat_name = await get_category_name(category_id)
-        if not cat_name:
-            return None, "❌ Категория не найдена"
-
         # Получаем подкатегории
         subcats = await get_category_children(category_id, include_inactive=False)
-        # Получаем товары в этой категории
-        products = await get_products_by_category(category_id, include_inactive=False)
 
-        kb = []
-
-        # Если есть подкатегории, показываем их
-        for sub in subcats:
+        if subcats:
+            # Есть подкатегории – показываем только их
+            kb = []
+            for sub in subcats:
+                kb.append([InlineKeyboardButton(
+                    text=f"📂 {sub['name']}",
+                    callback_data=f"cat_{sub['id']}"
+                )])
             kb.append([InlineKeyboardButton(
-                text=f"📂 {sub['name']}",
-                callback_data=f"cat_{sub['id']}"
+                text="🔙 Назад",
+                callback_data="show_catalog"
             )])
-
-        # Если есть товары, добавляем кнопку для их просмотра
-        if products:
-            kb.append([InlineKeyboardButton(
-                text="🛍 Товары в этой категории",
-                callback_data=f"cat_products_{category_id}"
-            )])
-
-        # Кнопка "Назад"
-        # Определяем родительскую категорию
-        # (упрощённо: пока всегда назад в корень, но можно улучшить)
-        kb.append([InlineKeyboardButton(
-            text="🔙 Назад к категориям",
-            callback_data="show_catalog"
-        )])
-
-        return InlineKeyboardMarkup(inline_keyboard=kb), f"📁 {cat_name}:"
+            cat_name = await get_category_name(category_id)
+            return InlineKeyboardMarkup(inline_keyboard=kb), f"📁 {cat_name}:", None
+        else:
+            # Нет подкатегорий – сразу показываем товары
+            return await get_products_keyboard(category_id)
 
 
 async def get_products_keyboard(category_id: int):
@@ -107,7 +94,7 @@ async def show_catalog(callback: types.CallbackQuery):
 
 async def show_catalog(message: types.Message):
     """Показать корневые категории"""
-    keyboard, text = await get_category_keyboard()
+    keyboard, text, _ = await get_category_keyboard()  # игнорируем третий элемент
     if keyboard:
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     else:
@@ -117,23 +104,14 @@ async def show_catalog(message: types.Message):
 @router.callback_query(lambda c: c.data.startswith("cat_"))
 async def process_category(callback: types.CallbackQuery):
     """Обработчик выбора категории"""
-    data = callback.data.split("_")
-    if len(data) == 2:
-        # Просто выбор категории
-        cat_id = int(data[1])
-        keyboard, text = await get_category_keyboard(cat_id)
-        if keyboard:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        else:
-            await callback.message.edit_text(text)
-    elif len(data) == 3 and data[1] == "products":
-        # Просмотр товаров в категории
-        cat_id = int(data[2])
-        keyboard, text = await get_products_keyboard(cat_id)
-        if keyboard:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        else:
-            await callback.message.edit_text(text)
+    cat_id = int(callback.data.split("_")[1])
+    result = await get_category_keyboard(cat_id)
+    if result[0] is None:
+        # Это сообщение об ошибке или пустоте
+        await callback.message.edit_text(result[1])
+    else:
+        keyboard, text = result[0], result[1]
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
