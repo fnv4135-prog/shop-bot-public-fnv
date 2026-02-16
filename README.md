@@ -1,4 +1,4 @@
-# 🏪 Telegram Shop Bot with PostgreSQL – Расширенная версия
+# 🏪 Telegram Shop Bot with PostgreSQL
 
 ![Python](https://img.shields.io/badge/Python-3.13+-blue)
 ![Aiogram](https://img.shields.io/badge/Aiogram-3.x-green)
@@ -17,7 +17,7 @@
 
 ---
 
-## ✨ Что нового / Ключевые особенности
+## ✨ Ключевые особенности
 
 - **📁 Иерархический каталог** – категории любого уровня вложенности (Apple → Наушники → AirPods Pro).  
 - **🔍 Быстрый поиск** по названию товара – клиент находит нужное за секунды.  
