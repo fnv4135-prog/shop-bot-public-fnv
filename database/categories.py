@@ -73,31 +73,24 @@ async def get_category_name(category_id: int) -> str:
 
 async def get_all_categories_flat(include_inactive: bool = False):
     """
-    Возвращает все категории в виде плоского списка с указанием уровня вложенности
+    Возвращает все категории в виде плоского списка (без построения пути)
     для отображения в выпадающих списках.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Получаем все категории, сортируем для построения дерева
         rows = await conn.fetch('''
-            WITH RECURSIVE cat_tree AS (
-                SELECT id, name, parent_id, sort_order, is_active, 0 as level,
-                       name as path
-                FROM categories
-                WHERE parent_id IS NULL
-                UNION ALL
-                SELECT c.id, c.name, c.parent_id, c.sort_order, c.is_active,
-                       ct.level + 1,
-                       ct.path || ' > ' || c.name
-                FROM categories c
-                JOIN cat_tree ct ON c.parent_id = ct.id
-            )
-            SELECT id, name, parent_id, level, path, is_active
-            FROM cat_tree
+            SELECT id, name, parent_id, sort_order, is_active
+            FROM categories
             WHERE ($1::bool OR is_active)
-            ORDER BY path
+            ORDER BY sort_order, name
         ''', include_inactive)
-        return [dict(row) for row in rows]
+        # Добавляем поле path, равное name (для совместимости с шаблоном)
+        result = []
+        for row in rows:
+            d = dict(row)
+            d['path'] = d['name']  # временно
+            result.append(d)
+        return result
 
 
 async def has_products(category_id: int) -> bool:
