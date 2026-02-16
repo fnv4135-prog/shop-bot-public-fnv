@@ -36,13 +36,19 @@ async def create_orders_tables():
 
 
 async def save_order(telegram_id: int, cart_items: list, total: int, username: str = "", first_name: str = "", last_name: str = "") -> int:
-    logger.info(f"📥 save_order вызван: telegram_id={telegram_id}, total={total}, items_count={len(cart_items)}")
+    logger.info(f"📥 ===== НАЧАЛО save_order =====")
+    logger.info(f"📥 telegram_id={telegram_id}, total={total}, items_count={len(cart_items)}")
+    logger.info(f"📥 cart_items: {cart_items}")
+
     if db_conn.pool is None:
         logger.error("❌ Пул соединений не инициализирован! Заказ не сохранён.")
         return 0
 
+    # Получаем внутренний id пользователя
+    logger.info(f"📥 Вызываем get_user_internal_id для {telegram_id}")
     internal_user_id = await get_user_internal_id(telegram_id, username, first_name, last_name)
-    logger.info(f"🆔 internal_user_id={internal_user_id}")
+    logger.info(f"📥 get_user_internal_id вернул: {internal_user_id}")
+
     if not internal_user_id:
         logger.error(f"❌ Не удалось получить внутренний ID для пользователя {telegram_id}")
         return 0
@@ -50,6 +56,7 @@ async def save_order(telegram_id: int, cart_items: list, total: int, username: s
     try:
         async with db_conn.pool.acquire() as conn:
             async with conn.transaction():
+                logger.info(f"📥 Вставляем заказ для internal_user_id={internal_user_id}, total={total}")
                 order = await conn.fetchrow(
                     'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING id',
                     internal_user_id, total
@@ -58,7 +65,7 @@ async def save_order(telegram_id: int, cart_items: list, total: int, username: s
                 logger.info(f"✅ Заказ {order_id} вставлен в orders")
 
                 for i, item in enumerate(cart_items):
-                    logger.info(f"   ➕ Позиция {i+1}: {item}")
+                    logger.info(f"   ➕ Позиция {i+1}: id={item.get('id')}, name={item.get('name')}, price={item.get('price')}, quantity={item.get('quantity')}")
                     await conn.execute('''
                         INSERT INTO order_items (order_id, product_id, product_name, price, quantity)
                         VALUES ($1, $2, $3, $4, $5)
@@ -67,7 +74,7 @@ async def save_order(telegram_id: int, cart_items: list, total: int, username: s
                 logger.info(f"✅ Заказ {order_id} полностью сохранён")
                 return order_id
     except Exception as e:
-        logger.exception(f"🔥 Ошибка в save_order: {e}")
+        logger.exception(f"🔥 ОШИБКА в save_order: {e}")
         return 0
 
 
