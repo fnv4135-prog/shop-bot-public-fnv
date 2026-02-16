@@ -112,8 +112,8 @@ async def main():
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
-                [types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],
-                 types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
+                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],  # две кнопки в ряду
+                [types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
 
@@ -121,7 +121,7 @@ async def main():
                 "🏪 <b>Добро пожаловать в магазин электроники FN-Tech!</b>\n\n"
                 "🎯 <b>Выберите действие:</b>\n\n"
                 "• <b>🛒 Каталог</b> — выбор товаров по категориям\n"
-                "• <b>📦 Поиск товаров</b> — поиск товара без перехода по кнопкам\n"
+                "• <b>🔍 Поиск</b> — поиск товара по названию\n"
                 "• <b>📦 Корзина</b> — просмотр и оформление заказа\n"
                 "• <b>📝 Мои заказы</b> — история ваших покупок\n"
                 "• <b>❓ Помощь</b> — информация о доставке и оплате\n\n"
@@ -130,8 +130,6 @@ async def main():
 
             await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
             logger.info(f"📱 Пользователь {message.from_user.id} открыл главное меню")
-
-            # Логируем /start
             asyncio.create_task(gsheets.log_start(message.from_user.id, message.from_user.username or ""))
 
         # ================== ОБРАБОТЧИКИ КНОПОК МЕНЮ ==================
