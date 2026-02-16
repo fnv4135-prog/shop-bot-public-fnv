@@ -67,7 +67,7 @@ async def save_order(telegram_id: int, cart_items: list, total: int, username: s
                 for i, item in enumerate(cart_items):
                     logger.info(f"   ➕ Позиция {i+1}: id={item.get('id')}, name={item.get('name')}, price={item.get('price')}, quantity={item.get('quantity')}")
                     await conn.execute('''
-                        INSERT INTO order_items (order_id, product_id, product_name, price, quantity)
+                        INSERT INTO order_items (order_id, product_id, product_name, product_price, quantity)
                         VALUES ($1, $2, $3, $4, $5)
                     ''', order_id, item['id'], item['name'], item['price'], item['quantity'])
 
