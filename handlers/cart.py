@@ -175,7 +175,7 @@ async def confirm_order(callback: types.CallbackQuery):
 
         # Сохраняем заказ и получаем реальный ID
         order_id = await save_order(
-            user_id=callback.from_user.id,  # это telegram_id
+            telegram_id=callback.from_user.id,
             cart_items=cart_items,
             total=total,
             username=callback.from_user.username or "",
