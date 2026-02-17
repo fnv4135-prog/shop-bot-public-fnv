@@ -94,11 +94,11 @@ async def main():
 
         dp.shutdown.register(on_shutdown)
 
-        dp.include_router(products_router)
-        dp.include_router(cart_router)
-        dp.include_router(order_router)
-        dp.include_router(admin_router)
-        dp.include_router(search_router)
+        dp.include_router(products_router)  # товары и категории
+        dp.include_router(cart_router)  # корзина
+        dp.include_router(order_router)  # заказы
+        dp.include_router(search_router)  # поиск (после основных)
+        dp.include_router(admin_router)  # админка (в конце)
 
         await setup_global_handlers(dp)
 

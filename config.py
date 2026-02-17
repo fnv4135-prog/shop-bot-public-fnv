@@ -5,9 +5,8 @@ from typing import Optional
 DEMO_MODE = os.getenv('DEMO_MODE', 'false').lower() == 'true'
 
 # ID администратора (твой Telegram ID)
-ADMIN_ID = 524082641  # если нужно изменить, поменяй тут или через переменную окружения
+ADMIN_ID = 524082641
 
-# Настройки Google Sheets
 GOOGLE_SHEETS_ENABLED = os.getenv('GOOGLE_SHEETS_ENABLED', 'true').lower() == 'true'
 GOOGLE_CREDENTIALS_BASE64 = os.getenv('GOOGLE_CREDENTIALS_BASE64', '')
 GOOGLE_SHEET_NAME = os.getenv('GOOGLE_SHEET_NAME', 'shop_bot_logs')

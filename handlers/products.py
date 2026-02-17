@@ -119,6 +119,7 @@ async def process_category(callback: types.CallbackQuery):
 async def show_product_detail(callback: types.CallbackQuery):
     """Показать детали товара и кнопку добавления в корзину"""
     product_id = int(callback.data.split("_")[1])
+    logger.info(f"🔍 show_product_detail вызван с data={callback.data}")
 
     from database import get_product_by_id
     product = await get_product_by_id(product_id)
