@@ -17,10 +17,9 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
     if user_id is None:
         user_id = message.from_user.id
 
-    # Получаем товары в корзине из БД (АСИНХРОННО!)
     cart_items = await get_cart_items(user_id)
 
-    if not cart_items:  # ← Исправлено: было `if not cart`, теперь `if not cart_items`
+    if not cart_items:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
             [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
@@ -42,11 +41,9 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
             )
         return
 
-    # Подсчитываем общую сумму и количество товаров
     total = sum(item['price'] * item['quantity'] for item in cart_items)
     total_items = sum(item['quantity'] for item in cart_items)
 
-    # Формируем текст корзины
     cart_text = "🛒 <b>Ваша корзина:</b>\n\n"
     for i, item in enumerate(cart_items, 1):
         cart_text += f"{i}. {item['name']} - {item['price']}₽ × {item['quantity']}\n"
@@ -75,14 +72,12 @@ async def cmd_cart(message: types.Message):
 
 @router.callback_query(lambda c: c.data == "view_cart")
 async def callback_show_cart(callback: types.CallbackQuery):
-    """Показать корзину при нажатии на кнопку"""
     await show_cart_handler(callback.message, callback.from_user.id)
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "ask_clear_cart")
 async def ask_clear_cart(callback: types.CallbackQuery):
-    """Спросить подтверждение на очистку корзины"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑 Да, очистить корзину", callback_data="confirm_clear_cart")],
         [InlineKeyboardButton(text="↩️ Нет, вернуться", callback_data="view_cart")]
@@ -99,9 +94,8 @@ async def ask_clear_cart(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "confirm_clear_cart")
 async def confirm_clear_cart(callback: types.CallbackQuery):
-    """Подтверждённая очистка корзины"""
     user_id = callback.from_user.id
-    success = await clear_cart(user_id)  # ← Исправлено: добавлено await, функция из database.cart
+    success = await clear_cart(user_id)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
@@ -127,10 +121,8 @@ async def confirm_clear_cart(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data == "create_order")
 async def create_order(callback: types.CallbackQuery):
-    """Оформление заказа"""
+    """Оформление заказа (предварительный экран)"""
     user_id = callback.from_user.id
-
-    # Получаем корзину из БД
     cart_items = await get_cart_items(user_id)
 
     if not cart_items:
@@ -173,23 +165,20 @@ async def confirm_order(callback: types.CallbackQuery):
         total = sum(item['price'] * item['quantity'] for item in cart_items)
         total_items = sum(item['quantity'] for item in cart_items)
 
-        # Сохраняем заказ и получаем реальный ID
         order_id = await save_order(
-            telegram_id=callback.from_user.id,
+            telegram_id=user_id,
             cart_items=cart_items,
             total=total,
-            username=callback.from_user.username or "",
-            first_name=callback.from_user.first_name or "",
-            last_name=callback.from_user.last_name or ""
+            username=username,
+            first_name=first_name,
+            last_name=last_name
         )
 
-        # Очищаем корзину
         success = await clear_cart(user_id)
 
         # Уведомление админу
-        if success and not config.is_demo_mode():  # если не демо-режим
+        if success and not config.is_demo_mode():
             try:
-                # Формируем сообщение
                 items_list = "\n".join(
                     [f"  • {item['name']} x{item['quantity']} - {item['price']}₽" for item in cart_items])
                 admin_message = (
@@ -199,13 +188,11 @@ async def confirm_order(callback: types.CallbackQuery):
                     f"📦 Товары:\n{items_list}\n\n"
                     f"Статус: ожидает обработки"
                 )
-                # Отправляем админу (ID из config)
                 await callback.bot.send_message(ADMIN_ID, admin_message, parse_mode="HTML")
                 logger.info(f"📨 Уведомление о заказе #{order_id} отправлено админу")
             except Exception as e:
                 logger.error(f"❌ Не удалось отправить уведомление админу: {e}")
 
-        # Логируем в Google Sheets (фоново)
         asyncio.create_task(gsheets.log_order_created(
             user_id=user_id,
             username=username,
@@ -214,7 +201,6 @@ async def confirm_order(callback: types.CallbackQuery):
             items_count=total_items
         ))
 
-        # Клавиатура для дальнейших действий
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
             [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
@@ -242,9 +228,7 @@ async def confirm_order(callback: types.CallbackQuery):
 
     except Exception as e:
         logger.exception(f"🔥 Критическая ошибка в confirm_order для user {callback.from_user.id}: {e}")
-        # Обязательно отвечаем на callback, чтобы кнопка не зависла
         await callback.answer("Произошла внутренняя ошибка. Мы уже знаем о ней.", show_alert=True)
-        # Пытаемся сообщить пользователю в чат (если можно)
         try:
             await callback.message.answer("⚠️ Произошла ошибка при оформлении заказа. Попробуйте ещё раз позже.")
         except:
