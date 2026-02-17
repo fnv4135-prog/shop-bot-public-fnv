@@ -44,7 +44,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 # === НАСТРОЙКА ПРАВ ДОСТУПА ===
-ADMIN_IDS = {524082641}  # Ваш ID
+ADMIN_IDS = {524082641, 777253693}  # Ваш ID
 
 
 def is_admin(user_id: int) -> bool:
