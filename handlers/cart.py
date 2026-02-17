@@ -58,7 +58,7 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order")],
-        [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],  # новая кнопка
+        [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],
         [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="ask_clear_cart")],
         [
             InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog"),
@@ -78,7 +78,8 @@ async def cmd_cart(message: types.Message):
 
 
 @router.callback_query(lambda c: c.data == "view_cart")
-async def callback_show_cart(callback: types.CallbackQuery):
+async def callback_show_cart(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
     await show_cart_handler(callback.message, callback.from_user.id)
     await callback.answer()
 
@@ -253,20 +254,23 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
         except:
             pass
 
+
 @router.callback_query(lambda c: c.data == "enter_promo")
 async def enter_promo(callback: types.CallbackQuery, state: FSMContext):
     """Запрос промокода"""
-    # Проверим, что корзина не пуста
     cart_items = await get_cart_items(callback.from_user.id)
     if not cart_items:
         await callback.answer("Корзина пуста!", show_alert=True)
         return
     await state.set_state(PromoState.waiting_for_code)
+
+    # Добавляем кнопку отмены
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Отмена", callback_data="view_cart")]
+    ])
     await callback.message.edit_text(
         "🎫 Введите промокод:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Отмена", callback_data="view_cart")]
-        ])
+        reply_markup=keyboard
     )
     await callback.answer()
 

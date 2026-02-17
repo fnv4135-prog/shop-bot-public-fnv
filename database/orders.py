@@ -35,7 +35,7 @@ async def create_orders_tables():
         logger.info("✅ Таблицы заказов созданы или уже существуют")
 
 
-async def save_order(telegram_id: int, cart_items: list, total: int, username: str = "", first_name: str = "", last_name: str = "") -> int:
+async def save_order(telegram_id: int, cart_items: list, total: int, username: str = "", first_name: str = "", last_name: str = "", promocode_id: int = None) -> int:
     logger.info(f"📥 ===== НАЧАЛО save_order =====")
     logger.info(f"📥 telegram_id={telegram_id}, total={total}, items_count={len(cart_items)}")
     logger.info(f"📥 cart_items: {cart_items}")
@@ -56,10 +56,9 @@ async def save_order(telegram_id: int, cart_items: list, total: int, username: s
     try:
         async with db_conn.pool.acquire() as conn:
             async with conn.transaction():
-                logger.info(f"📥 Вставляем заказ для internal_user_id={internal_user_id}, total={total}")
                 order = await conn.fetchrow(
-                    'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING id',
-                    internal_user_id, total
+                    'INSERT INTO orders (user_id, total_amount, promocode_id) VALUES ($1, $2, $3) RETURNING id',
+                    internal_user_id, total, promocode_id
                 )
                 order_id = order['id']
                 logger.info(f"✅ Заказ {order_id} вставлен в orders")
