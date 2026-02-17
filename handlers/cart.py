@@ -326,7 +326,13 @@ async def process_promo(message: types.Message, state: FSMContext):
     cart_text += f"\n<b>Товаров: {total_items}</b>\n"
     if discount > 0:
         cart_text += f"<b>Скидка: -{discount}₽</b>\n"
-    cart_text = ...  # как уже сформировано
+    cart_text = f"🛒 <b>Ваша корзина (с промокодом {code}):</b>\n\n"
+    for i, item in enumerate(cart_items, 1):
+        cart_text += f"{i}. {item['name']} - {item['price']}₽ × {item['quantity']}\n"
+    cart_text += f"\n<b>Товаров: {total_items}</b>\n"
+    if discount > 0:
+        cart_text += f"<b>Скидка: -{discount}₽</b>\n"
+    cart_text += f"<b>Итого: {new_total}₽</b>"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order")],
         # обрати внимание: create_order, не create_order_with_promo
