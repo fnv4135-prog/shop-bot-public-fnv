@@ -4,6 +4,7 @@ import config
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.state import State, StatesGroup
 from database import get_cart_items, clear_cart, save_order
 from utils import gsheets
 from config import ADMIN_ID
@@ -52,6 +53,7 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order")],
+        [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],  # новая кнопка
         [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="ask_clear_cart")],
         [
             InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog"),
@@ -150,8 +152,16 @@ async def create_order(callback: types.CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data == "confirm_order")
-async def confirm_order(callback: types.CallbackQuery):
+async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     try:
+        # Проверяем, есть ли промокод в состоянии
+        data = await state.get_data()
+        promo_id = data.get('promocode_id')
+        discounted_total = data.get('discounted_total')
+        discount = data.get('discount', 0)
+        # Если есть промокод, используем его для подсчёта, иначе считаем как обычно
+        # Но нам нужно передать promo_id в save_order
+        # Остальной код остаётся тем же, только total заменяем на discounted_total, если он есть
         user_id = callback.from_user.id
         username = callback.from_user.username or ""
         first_name = callback.from_user.first_name or ""
@@ -162,7 +172,10 @@ async def confirm_order(callback: types.CallbackQuery):
             await callback.answer("❌ Корзина пуста!", show_alert=True)
             return
 
-        total = sum(item['price'] * item['quantity'] for item in cart_items)
+        if discounted_total is None:
+            total = sum(item['price'] * item['quantity'] for item in cart_items)
+        else:
+            total = discounted_total
         total_items = sum(item['quantity'] for item in cart_items)
 
         order_id = await save_order(
@@ -171,7 +184,8 @@ async def confirm_order(callback: types.CallbackQuery):
             total=total,
             username=username,
             first_name=first_name,
-            last_name=last_name
+            last_name=last_name,
+            promocode_id=promo_id
         )
 
         success = await clear_cart(user_id)
@@ -233,3 +247,87 @@ async def confirm_order(callback: types.CallbackQuery):
             await callback.message.answer("⚠️ Произошла ошибка при оформлении заказа. Попробуйте ещё раз позже.")
         except:
             pass
+
+@router.callback_query(lambda c: c.data == "enter_promo")
+async def enter_promo(callback: types.CallbackQuery, state: FSMContext):
+    """Запрос промокода"""
+    # Проверим, что корзина не пуста
+    cart_items = await get_cart_items(callback.from_user.id)
+    if not cart_items:
+        await callback.answer("Корзина пуста!", show_alert=True)
+        return
+    await state.set_state(PromoState.waiting_for_code)
+    await callback.message.edit_text(
+        "🎫 Введите промокод:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Отмена", callback_data="view_cart")]
+        ])
+    )
+    await callback.answer()
+
+
+@router.message(PromoState.waiting_for_code)
+async def process_promo(message: types.Message, state: FSMContext):
+    """Обработка введённого промокода"""
+    code = message.text.strip()
+    from database.promocodes import get_promocode
+    promo = await get_promocode(code)
+    if not promo:
+        await message.answer("❌ Промокод недействителен или истёк. Попробуйте ещё раз.")
+        return
+
+    # Сохраняем промокод в состоянии сессии (или в БД временно)
+    await state.update_data(promocode_id=promo['id'], discount_type=promo['discount_type'],
+                            discount_value=promo['discount_value'])
+    # Показываем корзину с учётом скидки
+    user_id = message.from_user.id
+    cart_items = await get_cart_items(user_id)
+    total = sum(item['price'] * item['quantity'] for item in cart_items)
+    total_items = sum(item['quantity'] for item in cart_items)
+
+    # Применяем скидку
+    if promo['discount_type'] == 'percent':
+        discount = total * promo['discount_value'] // 100
+    else:
+        discount = min(promo['discount_value'], total)  # не больше суммы
+    new_total = total - discount
+
+    # Сохраняем сумму со скидкой в состоянии
+    await state.update_data(discounted_total=new_total, discount=discount)
+
+    # Показываем обновлённую корзину
+    cart_text = f"🛒 <b>Ваша корзина (с промокодом {code}):</b>\n\n"
+    for i, item in enumerate(cart_items, 1):
+        cart_text += f"{i}. {item['name']} - {item['price']}₽ × {item['quantity']}\n"
+    cart_text += f"\n<b>Товаров: {total_items}</b>\n"
+    if discount > 0:
+        cart_text += f"<b>Скидка: -{discount}₽</b>\n"
+    cart_text += f"<b>Итого: {new_total}₽</b>"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order_with_promo")],
+        [InlineKeyboardButton(text="🎫 Другой промокод", callback_data="enter_promo")],
+        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="ask_clear_cart")],
+        [
+            InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog"),
+            InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
+        ]
+    ])
+
+    await message.answer(cart_text, reply_markup=keyboard, parse_mode="HTML")
+    await state.set_state(None)  # можно оставить состояние для оформления, но лучше новый обработчик
+
+
+@router.callback_query(lambda c: c.data == "create_order_with_promo")
+async def create_order_with_promo(callback: types.CallbackQuery, state: FSMContext):
+    """Оформление заказа с промокодом"""
+    data = await state.get_data()
+    promo_id = data.get('promocode_id')
+    discounted_total = data.get('discounted_total')
+    # Вызываем обычный confirm_order, но передаём туда promo_id и сумму
+    # Можно немного переделать confirm_order, чтобы он принимал необязательные параметры
+    # Я для простоты вызову confirm_order, но внутри него нужно будет учесть промокод.
+    # Давай проще: создадим нового обработчика, который будет делать всё то же, что и confirm_order, но с учётом промокода.
+    # Но чтобы не дублировать код, лучше модифицировать существующий confirm_order.
+    # Поступим так: в confirm_order будем проверять, есть ли промокод в состоянии, и если есть, применяем его.
+    await confirm_order(callback, state, promo_applied=True)

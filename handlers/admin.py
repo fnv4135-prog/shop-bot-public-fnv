@@ -26,6 +26,12 @@ CALLBACK_CAT_EDIT_ACTIVE = "admin_cat_edit_active"
 CALLBACK_CAT_EDIT_PARENT = "admin_cat_edit_parent"
 CALLBACK_CAT_EDIT_BACK = "admin_cat_edit_back"
 CALLBACK_CAT_EDIT_SAVE = "admin_cat_edit_save"
+CALLBACK_PROMO = "admin_promo"
+CALLBACK_PROMO_ADD = "admin_promo_add"
+CALLBACK_PROMO_LIST = "admin_promo_list"
+CALLBACK_PROMO_DELETE = "admin_promo_delete_"
+CALLBACK_PROMO_TOGGLE = "admin_promo_toggle_"
+CALLBACK_PROMO_BACK = "admin_promo_back"
 
 class AddCategory(StatesGroup):
     waiting_for_name = State()
@@ -40,11 +46,22 @@ class EditCategory(StatesGroup):
     waiting_for_parent = State()
     waiting_for_active = State()
 
+class AddPromo(StatesGroup):
+    waiting_for_code = State()
+    waiting_for_type = State()
+    waiting_for_value = State()
+    waiting_for_valid_until = State()
+    waiting_for_max_uses = State()
+
+class BroadcastStates(StatesGroup):
+    waiting_for_message = State()
+    waiting_for_confirm = State()
+
 router = Router()
 logger = logging.getLogger(__name__)
 
 # === НАСТРОЙКА ПРАВ ДОСТУПА ===
-ADMIN_IDS = {524082641, 777253693}  # Ваш ID
+ADMIN_IDS = {524082641}  # Ваш ID
 
 
 def is_admin(user_id: int) -> bool:
@@ -85,6 +102,8 @@ async def cmd_admin(message: types.Message):
         [types.InlineKeyboardButton(text="📝 Управление товарами", callback_data="admin_manage_products")],
         [types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [types.InlineKeyboardButton(text="📂 Управление категориями", callback_data=CALLBACK_CATEGORIES)],
+        [types.InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [types.InlineKeyboardButton(text="🎫 Управление промокодами", callback_data=CALLBACK_PROMO)],
         [types.InlineKeyboardButton(text="🏠 В главное меню", callback_data="go_home")]
     ])
 
@@ -557,9 +576,6 @@ async def process_edit_active(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# Для родителя можно сделать выбор из списка, как при создании. Это добавим позже.
-
-
 @router.message(AddCategory.waiting_for_name)
 async def process_category_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
@@ -664,9 +680,277 @@ async def test_categories(message: types.Message):
         await message.answer(f"❌ Ошибка: {e}")
         logger.exception("Ошибка в test_categories")
 
-# === ВОЗВРАТ В АДМИНКУ ===
+
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "📢 Введите текст сообщения для рассылки всем пользователям:"
+    )
+    await state.set_state(BroadcastStates.waiting_for_message)
+    await callback.answer()
+
+
+@router.message(BroadcastStates.waiting_for_message)
+async def admin_broadcast_message(message: types.Message, state: FSMContext):
+    text = message.text
+    await state.update_data(text=text)
+    # Показываем предпросмотр и запрашиваем подтверждение
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_back")]
+    ])
+    await message.answer(
+        f"📢 Будет отправлено:\n\n{text}\n\nПодтвердите рассылку:",
+        reply_markup=kb
+    )
+    await state.set_state(BroadcastStates.waiting_for_confirm)
+
+
+@router.callback_query(BroadcastStates.waiting_for_confirm, F.data == "broadcast_confirm")
+async def admin_broadcast_confirm(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    text = data['text']
+    await callback.message.edit_text("⏳ Начинаю рассылку...")
+    await state.clear()
+
+    # Получаем всех пользователей
+    from database.users import get_all_users  # нужно создать функцию
+    users = await get_all_users()
+    sent = 0
+    failed = 0
+    for user in users:
+        try:
+            await callback.bot.send_message(user['telegram_id'], text)
+            sent += 1
+            await asyncio.sleep(0.05)  # чтобы не спамить
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Не удалось отправить пользователю {user['telegram_id']}: {e}")
+    await callback.message.edit_text(f"✅ Рассылка завершена. Отправлено: {sent}, ошибок: {failed}")
+    # Возвращаемся в админку
+    await admin_back(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "📢 Введите текст сообщения для рассылки всем пользователям:"
+    )
+    await state.set_state(BroadcastStates.waiting_for_message)
+    await callback.answer()
+
+
+@router.message(BroadcastStates.waiting_for_message)
+async def admin_broadcast_message(message: types.Message, state: FSMContext):
+    text = message.text
+    await state.update_data(text=text)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_back")]
+    ])
+    await message.answer(
+        f"📢 Будет отправлено:\n\n{text}\n\nПодтвердите рассылку:",
+        reply_markup=kb
+    )
+    await state.set_state(BroadcastStates.waiting_for_confirm)
+
+
+@router.callback_query(BroadcastStates.waiting_for_confirm, F.data == "broadcast_confirm")
+async def admin_broadcast_confirm(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    text = data['text']
+    await callback.message.edit_text("⏳ Начинаю рассылку...")
+    await state.clear()
+
+    from database.users import get_all_users
+    users = await get_all_users()
+    sent = 0
+    failed = 0
+    for user in users:
+        try:
+            await callback.bot.send_message(user['telegram_id'], text)
+            sent += 1
+            await asyncio.sleep(0.05)  # чтобы не спамить
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Не удалось отправить пользователю {user['telegram_id']}: {e}")
+    await callback.message.edit_text(f"✅ Рассылка завершена. Отправлено: {sent}, ошибок: {failed}")
+    # Возврат в админку
+    await admin_back(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == CALLBACK_PROMO)
+async def admin_promo_menu(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    from database.promocodes import get_all_promocodes
+    promos = await get_all_promocodes(include_inactive=True)
+
+    text = "🎫 **Управление промокодами**\n\n"
+    if not promos:
+        text += "Пока нет ни одного промокода."
+    else:
+        for p in promos:
+            active = "✅" if p['is_active'] else "❌"
+            valid = f"до {p['valid_until']}" if p['valid_until'] else "бессрочно"
+            uses = f"{p['used_count']}/{p['max_uses'] if p['max_uses'] else '∞'}"
+            text += f"• `{p['code']}` {p['discount_type']} {p['discount_value']} {active}\n"
+            text += f"  {valid}, использований: {uses}\n"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Создать промокод", callback_data=CALLBACK_PROMO_ADD)],
+        [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+# Добавление промокода
+@router.callback_query(F.data == CALLBACK_PROMO_ADD)
+async def add_promo_start(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+    await state.set_state(AddPromo.waiting_for_code)
+    await callback.message.edit_text(
+        "➕ **Создание промокода**\n\n"
+        "Введите код промокода (например, SALE20):",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@router.message(AddPromo.waiting_for_code)
+async def add_promo_code(message: types.Message, state: FSMContext):
+    code = message.text.strip().upper()
+    if not code:
+        await message.answer("❌ Код не может быть пустым")
+        return
+    await state.update_data(code=code)
+    await state.set_state(AddPromo.waiting_for_type)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Процент", callback_data="type_percent"),
+         InlineKeyboardButton(text="Фиксированная сумма", callback_data="type_fixed")]
+    ])
+    await message.answer("Выберите тип скидки:", reply_markup=kb)
+
+
+@router.callback_query(AddPromo.waiting_for_type, F.data.in_({"type_percent", "type_fixed"}))
+async def add_promo_type(callback: types.CallbackQuery, state: FSMContext):
+    dtype = "percent" if callback.data == "type_percent" else "fixed"
+    await state.update_data(discount_type=dtype)
+    await state.set_state(AddPromo.waiting_for_value)
+    await callback.message.edit_text(
+        "Введите значение скидки:\n"
+        "- для процента: число от 1 до 100\n"
+        "- для фиксированной суммы: целое число (в рублях)"
+    )
+    await callback.answer()
+
+
+@router.message(AddPromo.waiting_for_value)
+async def add_promo_value(message: types.Message, state: FSMContext):
+    try:
+        value = int(message.text)
+        data = await state.get_data()
+        if data['discount_type'] == 'percent' and (value < 1 or value > 100):
+            await message.answer("❌ Процент должен быть от 1 до 100")
+            return
+        if value <= 0:
+            await message.answer("❌ Значение должно быть положительным")
+            return
+    except ValueError:
+        await message.answer("❌ Введите целое число")
+        return
+    await state.update_data(discount_value=value)
+    await state.set_state(AddPromo.waiting_for_valid_until)
+    await message.answer(
+        "Введите дату окончания действия (в формате ГГГГ-ММ-ДД) или отправьте '0', если бессрочно:"
+    )
+
+
+@router.message(AddPromo.waiting_for_valid_until)
+async def add_promo_valid(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+    if text == '0':
+        valid_until = None
+    else:
+        try:
+            from datetime import datetime
+            valid_until = datetime.strptime(text, "%Y-%m-%d").date()
+        except ValueError:
+            await message.answer("❌ Неверный формат даты. Используйте ГГГГ-ММ-ДД или 0")
+            return
+    await state.update_data(valid_until=valid_until)
+    await state.set_state(AddPromo.waiting_for_max_uses)
+    await message.answer(
+        "Введите максимальное количество использований (целое число) или '0' для безлимита:"
+    )
+
+
+@router.message(AddPromo.waiting_for_max_uses)
+async def add_promo_max(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+    if text == '0':
+        max_uses = None
+    else:
+        try:
+            max_uses = int(text)
+            if max_uses <= 0:
+                await message.answer("❌ Число должно быть положительным")
+                return
+        except ValueError:
+            await message.answer("❌ Введите целое число")
+            return
+    data = await state.get_data()
+    from database.promocodes import create_promocode
+    try:
+        promo_id = await create_promocode(
+            code=data['code'],
+            discount_type=data['discount_type'],
+            discount_value=data['discount_value'],
+            valid_until=str(data['valid_until']) if data['valid_until'] else None,
+            max_uses=max_uses
+        )
+        await message.answer(f"✅ Промокод {data['code']} создан (ID={promo_id})")
+    except Exception as e:
+        logger.error(f"Ошибка создания промокода: {e}")
+        await message.answer("❌ Ошибка при создании промокода (возможно, такой код уже существует)")
+    await state.clear()
+    # Возврат в меню промокодов
+    # Создадим новый callback для перехода
+    # Можно просто вызвать admin_promo_menu через создание нового callback-запроса, но проще показать кнопку
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 К списку промокодов", callback_data=CALLBACK_PROMO)]
+    ])
+    await message.answer("Что дальше?", reply_markup=kb)
+
+
 @router.callback_query(F.data == "admin_back")
 async def admin_back(callback: types.CallbackQuery):
     """Возврат в главное меню админки"""
-    await cmd_admin(callback.message)
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product")],
+        [types.InlineKeyboardButton(text="📝 Управление товарами", callback_data="admin_manage_products")],
+        [types.InlineKeyboardButton(text="📂 Управление категориями", callback_data="admin_categories")],
+        [types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [types.InlineKeyboardButton(text="🏠 В главное меню", callback_data="go_home")]
+    ])
+
+    await callback.message.edit_text(
+        f"🛠️ <b>Админ-панель магазина</b>\n\n"
+        f"Выберите действие:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
     await callback.answer()
