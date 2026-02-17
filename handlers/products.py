@@ -105,13 +105,15 @@ async def show_catalog(message: types.Message):
 async def process_category(callback: types.CallbackQuery):
     data = callback.data.split("_")
     if len(data) == 2:
-        # ... выбор категории
+        # просто выбор категории
+        cat_id = int(data[1])
+        keyboard, text = await get_category_keyboard(cat_id)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     elif len(data) == 3 and data[1] == "products":
         # просмотр товаров в категории
         cat_id = int(data[2])
         keyboard, text = await get_products_keyboard(cat_id)
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data.startswith("product_"))
