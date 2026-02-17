@@ -53,10 +53,8 @@ async def process_search(message: types.Message, state: FSMContext):
             callback_data=f"product_{prod['id']}"
         )])
     # Добавляем кнопки навигации
-    kb.append([
-        InlineKeyboardButton(text="◀️ Назад в каталог", callback_data="show_catalog"),
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")
-    ])
+    kb.append([InlineKeyboardButton(text="◀️ Назад в каталог", callback_data="show_catalog")])
+    kb.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="go_home")])
 
     await message.answer(
         f"🔍 Найдено товаров: {len(results)}\n\nВыберите товар:",

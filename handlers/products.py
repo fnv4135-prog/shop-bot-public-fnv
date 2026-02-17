@@ -103,21 +103,19 @@ async def show_catalog(message: types.Message):
 
 @router.callback_query(lambda c: c.data.startswith("cat_"))
 async def process_category(callback: types.CallbackQuery):
-    """Обработчик выбора категории"""
-    cat_id = int(callback.data.split("_")[1])
-    result = await get_category_keyboard(cat_id)
-    if result[0] is None:
-        # Это сообщение об ошибке или пустоте
-        await callback.message.edit_text(result[1])
-    else:
-        keyboard, text = result[0], result[1]
+    data = callback.data.split("_")
+    if len(data) == 2:
+        # ... выбор категории
+    elif len(data) == 3 and data[1] == "products":
+        # просмотр товаров в категории
+        cat_id = int(data[2])
+        keyboard, text = await get_products_keyboard(cat_id)
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data.startswith("product_"))
 async def show_product_detail(callback: types.CallbackQuery):
-    """Показать детали товара и кнопку добавления в корзину"""
     product_id = int(callback.data.split("_")[1])
     logger.info(f"🔍 show_product_detail вызван с data={callback.data}")
 
