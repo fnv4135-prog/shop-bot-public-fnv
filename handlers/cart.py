@@ -3,14 +3,19 @@ import asyncio
 import config
 from aiogram import Router, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_cart_items, clear_cart, save_order
 from utils import gsheets
 from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+class PromoState(StatesGroup):
+    waiting_for_code = State()
 
 
 async def show_cart_handler(message: types.Message, user_id: int = None):
