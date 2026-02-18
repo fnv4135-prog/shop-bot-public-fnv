@@ -72,8 +72,7 @@ async def get_user_internal_id(telegram_id: int, username: str = "", first_name:
     return result
 
 async def get_all_users():
-    """Возвращает список всех пользователей (их telegram_id)"""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('SELECT telegram_id FROM users')
-        return rows
+        return [dict(row) for row in rows]

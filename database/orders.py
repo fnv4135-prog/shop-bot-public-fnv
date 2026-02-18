@@ -84,23 +84,25 @@ async def get_user_orders(telegram_id: int):
 
     internal_user_id = await get_user_internal_id(telegram_id)
     if not internal_user_id:
+        logger.warning(f"⚠️ Пользователь {telegram_id} не найден, нет заказов")
         return []
 
     async with db_conn.pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT o.id, o.order_date, o.total_amount, o.status,
-                   json_agg(json_build_object(
+                   COALESCE(json_agg(json_build_object(
                        'product_id', oi.product_id,
                        'product_name', oi.product_name,
-                       'price', oi.price,
+                       'price', oi.product_price,
                        'quantity', oi.quantity
-                   )) as items
+                   )), '[]'::json) as items
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
             WHERE o.user_id = $1
             GROUP BY o.id
             ORDER BY o.order_date DESC
         ''', internal_user_id)
+        logger.info(f"📦 get_user_orders: найдено {len(rows)} заказов для пользователя {telegram_id}")
         return rows
 
 

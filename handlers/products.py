@@ -5,6 +5,7 @@ import logging
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramBadRequest
 from database import get_products_by_category, add_to_cart, get_product_by_id
 from database.categories import get_category_tree, get_category_children, get_category_name
 
@@ -93,13 +94,17 @@ async def process_category(callback: types.CallbackQuery):
     """Обработчик выбора категории или перехода к товарам"""
     data = callback.data.split("_")
 
-    if len(data) == 2:  # просто выбор категории
+    if len(data) == 2:
         cat_id = int(data[1])
         keyboard, text = await get_category_keyboard(cat_id)
-        if keyboard:
+        try:
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        else:
-            await callback.message.edit_text(text)
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                # Просто игнорируем
+                pass
+            else:
+                raise
 
     elif len(data) == 3 and data[1] == "products":  # просмотр товаров в категории
         cat_id = int(data[2])
