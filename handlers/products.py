@@ -129,7 +129,7 @@ async def show_product_detail(callback: types.CallbackQuery):
         [
             InlineKeyboardButton(text="➕ Добавить в корзину",
                                  callback_data=f"add_to_cart_{product_id}"),
-            InlineKeyboardButton(text="🛒 В корзину",
+            InlineKeyboardButton(text="🛒 Моя корзина",
                                  callback_data="view_cart")
         ],
         [InlineKeyboardButton(text="🔙 Назад к товарам",

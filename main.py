@@ -138,17 +138,20 @@ async def main():
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
-                 types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
+                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],  # две кнопки в ряду
+                [types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
 
             welcome_text = (
-                "🏪 <b>Главное меню</b>\n\n"
+                "🏪 <b>Добро пожаловать в магазин электроники FN-Tech!</b>\n\n"
                 "🎯 <b>Выберите действие:</b>\n\n"
                 "• <b>🛒 Каталог</b> — выбор товаров по категориям\n"
+                "• <b>🔍 Поиск</b> — поиск товара по названию\n"
                 "• <b>📦 Корзина</b> — просмотр и оформление заказа\n"
                 "• <b>📝 Мои заказы</b> — история ваших покупок\n"
-                "• <b>❓ Помощь</b> — информация о доставке и оплате"
+                "• <b>❓ Помощь</b> — информация о доставке и оплате\n\n"
+                "✨ <i>Просто нажмите на нужную кнопку!</i>"
             )
 
             await callback.message.edit_text(welcome_text, reply_markup=keyboard, parse_mode="HTML")

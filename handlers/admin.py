@@ -719,16 +719,19 @@ async def admin_broadcast_confirm(callback: types.CallbackQuery, state: FSMConte
     # Получаем всех пользователей
     from database.users import get_all_users  # нужно создать функцию
     users = await get_all_users()
+    if not users:
+        await callback.message.edit_text("❌ Нет пользователей для рассылки.")
+        return
     sent = 0
     failed = 0
     for user in users:
         try:
             await callback.bot.send_message(user['telegram_id'], text)
             sent += 1
-            await asyncio.sleep(0.05)  # чтобы не спамить
+            await asyncio.sleep(0.05)
         except Exception as e:
             failed += 1
-            logger.warning(f"Не удалось отправить пользователю {user['telegram_id']}: {e}")
+            logger.warning(f"Не удалось отправить {user['telegram_id']}: {e}")
     await callback.message.edit_text(f"✅ Рассылка завершена. Отправлено: {sent}, ошибок: {failed}")
     # Возвращаемся в админку
     await admin_back(callback)
