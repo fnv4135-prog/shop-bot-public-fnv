@@ -91,29 +91,23 @@ async def show_catalog(message: types.Message):
 
 @router.callback_query(lambda c: c.data.startswith("cat_"))
 async def process_category(callback: types.CallbackQuery):
-    """Обработчик выбора категории или перехода к товарам"""
     data = callback.data.split("_")
-
-    if len(data) == 2:
-        cat_id = int(data[1])
-        keyboard, text = await get_category_keyboard(cat_id)
-        try:
+    try:
+        if len(data) == 2:
+            cat_id = int(data[1])
+            keyboard, text = await get_category_keyboard(cat_id)
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        except TelegramBadRequest as e:
-            if "message is not modified" in str(e):
-                # Просто игнорируем
-                pass
-            else:
-                raise
-
-    elif len(data) == 3 and data[1] == "products":  # просмотр товаров в категории
-        cat_id = int(data[2])
-        keyboard, text = await get_products_keyboard(cat_id)
-        if keyboard:
+        elif len(data) == 3 and data[1] == "products":
+            cat_id = int(data[2])
+            keyboard, text = await get_products_keyboard(cat_id)
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            # Просто игнорируем, ничего страшного
+            logger.debug(f"Игнорируем ошибку message not modified: {e}")
         else:
-            await callback.message.edit_text(text)
-
+            # Другие ошибки пробрасываем
+            raise
     await callback.answer()
 
 

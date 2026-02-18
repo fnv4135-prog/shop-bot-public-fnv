@@ -106,33 +106,5 @@ async def count_products() -> int:
 
 
 async def migrate_initial_data() -> int:
-    """Перенести начальные данные в БД (если нужно)"""
-    pool = await get_pool()
-
-    # Проверяем, есть ли уже товары
-    async with pool.acquire() as conn:
-        existing_count = await conn.fetchval("SELECT COUNT(*) FROM products")
-
-        if existing_count == 0:
-            logger.info("📦 Перенос начальных данных в БД...")
-
-            # Пример начальных товаров
-            initial_products = [
-                ("📱 iPhone 15 Pro", "Новый флагман Apple с процессором A17 Pro", 129900, "Смартфоны"),
-                ("💻 MacBook Air M2", "Ультратонкий ноутбук с дисплеем Liquid Retina", 149900, "Ноутбуки"),
-                ("⌚ Apple Watch Series 9", "Умные часы с функцией двойного нажатия", 49900, "Гаджеты"),
-                ("🎧 AirPods Pro 2", "Наушники с шумоподавлением и пространственным звуком", 29900, "Аксессуары"),
-                ("🔋 Power Bank 20000mAh", "Мощный power bank с быстрой зарядкой", 4900, "Аксессуары")
-            ]
-
-            for name, description, price, category in initial_products:
-                await conn.execute(
-                    "INSERT INTO products (name, description, price, category, is_active) VALUES ($1, $2, $3, $4, TRUE)",
-                    name, description, price, category
-                )
-
-            logger.info(f"✅ Перенесено {len(initial_products)} товаров в БД")
-            return len(initial_products)
-
-        logger.info(f"✅ В БД уже есть {existing_count} товаров")
-        return existing_count
+    """Миграция начальных данных – отключена, чтобы не мешать реальным товарам"""
+    return 0

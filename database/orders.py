@@ -90,12 +90,17 @@ async def get_user_orders(telegram_id: int):
     async with db_conn.pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT o.id, o.order_date, o.total_amount, o.status,
-                   COALESCE(json_agg(json_build_object(
-                       'product_id', oi.product_id,
-                       'product_name', oi.product_name,
-                       'price', oi.product_price,
-                       'quantity', oi.quantity
-                   )), '[]'::json) as items
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'product_id', oi.product_id,
+                               'product_name', oi.product_name,
+                               'price', oi.product_price,
+                               'quantity', oi.quantity
+                           )
+                       ),
+                       '[]'::json
+                   ) as items
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
             WHERE o.user_id = $1
