@@ -351,15 +351,24 @@ async def admin_stats(callback: types.CallbackQuery):
 
 @router.callback_query(F.data == CALLBACK_ORDERS)
 async def admin_orders_list(callback: types.CallbackQuery):
+    logger.info("admin_orders_list вызвана")
     if not is_admin(callback.from_user.id):
         await callback.answer("Доступ запрещён", show_alert=True)
         return
 
     from database.orders import get_all_orders
-    orders = await get_all_orders(limit=30)
+    try:
+        orders = await get_all_orders(limit=30)
+        logger.info(f"get_all_orders вернула {len(orders)} заказов")
+    except Exception as e:
+        logger.exception("Ошибка при вызове get_all_orders")
+        await callback.message.edit_text("Ошибка при загрузке заказов")
+        await callback.answer()
+        return
 
     if not orders:
         await callback.message.edit_text("📦 Заказов пока нет.")
+        await callback.answer()
         return
 
     text = "📦 **Последние заказы:**\n\n"

@@ -131,28 +131,35 @@ async def get_all_orders_stats():
 
 
 async def get_all_orders(limit: int = 50, status: str = None):
-    """Получить все заказы для админки (с фильтром по статусу)"""
     if db_conn.pool is None:
+        logger.error("Пул соединений не инициализирован")
         return []
     async with db_conn.pool.acquire() as conn:
-        if status:
-            rows = await conn.fetch('''
-                SELECT o.id, o.order_date, o.total_amount, o.status, u.telegram_id, u.username
-                FROM orders o
-                JOIN users u ON o.user_id = u.id
-                WHERE o.status = $1
-                ORDER BY o.order_date DESC
-                LIMIT $2
-            ''', status, limit)
-        else:
-            rows = await conn.fetch('''
-                SELECT o.id, o.order_date, o.total_amount, o.status, u.telegram_id, u.username
-                FROM orders o
-                JOIN users u ON o.user_id = u.id
-                ORDER BY o.order_date DESC
-                LIMIT $1
-            ''', limit)
-        return [dict(row) for row in rows]
+        try:
+            if status:
+                rows = await conn.fetch('''
+                    SELECT o.id, o.order_date, o.total_amount, o.status, 
+                           u.telegram_id, u.username
+                    FROM orders o
+                    JOIN users u ON o.user_id = u.id
+                    WHERE o.status = $1
+                    ORDER BY o.order_date DESC
+                    LIMIT $2
+                ''', status, limit)
+            else:
+                rows = await conn.fetch('''
+                    SELECT o.id, o.order_date, o.total_amount, o.status, 
+                           u.telegram_id, u.username
+                    FROM orders o
+                    JOIN users u ON o.user_id = u.id
+                    ORDER BY o.order_date DESC
+                    LIMIT $1
+                ''', limit)
+            logger.info(f"get_all_orders: найдено {len(rows)} заказов")
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.exception("Ошибка в get_all_orders")
+            return []
 
 
 async def update_order_status(order_id: int, new_status: str) -> bool:
