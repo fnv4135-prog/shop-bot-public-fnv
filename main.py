@@ -18,6 +18,7 @@ from aiogram.types import Update
 import config
 from utils import gsheets
 from utils.notify import notify_admin
+from utils.redis_client import close_redis
 
 # ================== ИМПОРТ РОУТЕРОВ ==================
 from handlers.admin import router as admin_router
@@ -63,6 +64,7 @@ async def on_shutdown():
     logger.info("🔄 Завершение работы бота...")
     try:
         await close_pool()
+        await close_redis()
         logger.info("📴 Подключение к БД закрыто")
     except Exception as e:
         logger.error(f"Ошибка при закрытии БД: {e}")

@@ -3,18 +3,28 @@ database/categories.py - Функции для работы с категори�
 """
 import logging
 from database.connection import get_pool
+from utils.redis_client import get_redis, clear_cache_pattern
+import json
 
 logger = logging.getLogger(__name__)
 
 
 async def get_category_tree(parent_id: int = None, include_inactive: bool = False):
     """
-    Возвращает дерево категорий начиная с указанного родителя.
-    Если parent_id = None, возвращаются корневые категории.
+    Возвращает дерево категорий с кэшированием в Redis.
     """
+    # Пробуем взять из кэша
+    redis_client = await get_redis()
+    cache_key = f"cat_tree:{parent_id}:{include_inactive}"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            logger.debug(f"✅ Загружено из кэша: {cache_key}")
+            return json.loads(cached)
+
+    # Если в кэше нет, идём в БД
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Получаем все категории, которые нужно отобразить
         rows = await conn.fetch('''
             SELECT * FROM categories
             WHERE ($1::bool OR is_active)
@@ -22,17 +32,22 @@ async def get_category_tree(parent_id: int = None, include_inactive: bool = Fals
             ORDER BY sort_order, name
         ''', include_inactive, parent_id)
 
-        # Если это корневые категории, для каждой подгружаем подкатегории
         if parent_id is None:
             tree = []
             for row in rows:
                 cat = dict(row)
                 cat['children'] = await get_category_tree(row['id'], include_inactive)
                 tree.append(cat)
-            return tree
+            result = tree
         else:
-            # Для не-корневых возвращаем плоский список
-            return [dict(row) for row in rows]
+            result = [dict(row) for row in rows]
+
+    # Сохраняем в кэш на 1 час (3600 секунд)
+    if redis_client:
+        await redis_client.setex(cache_key, 3600, json.dumps(result, default=str))
+        logger.debug(f"💾 Сохранено в кэш: {cache_key}")
+
+    return result
 
 
 async def get_category_children(category_id: int, include_inactive: bool = False):
@@ -124,6 +139,7 @@ async def create_category(name: str, parent_id: int = None, sort_order: int = 0,
             name, parent_id, sort_order, is_active
         )
         logger.info(f"📁 Создана категория '{name}' (id={row['id']})")
+        await clear_cache_pattern("cat_tree:*")
         return row['id']
 
 
@@ -142,6 +158,7 @@ async def update_category(category_id: int, **kwargs):
             *values
         )
         logger.info(f"📁 Обновлена категория id={category_id}")
+        await clear_cache_pattern("cat_tree:*")
         return True
 
 
@@ -154,6 +171,7 @@ async def delete_category(category_id: int) -> bool:
     async with pool.acquire() as conn:
         await conn.execute('DELETE FROM categories WHERE id = $1', category_id)
         logger.info(f"📁 Удалена категория id={category_id}")
+        await clear_cache_pattern("cat_tree:*")
         return True
 
 
