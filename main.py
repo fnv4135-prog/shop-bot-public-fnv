@@ -26,9 +26,6 @@ from utils.http_server import run_http_server
 from utils.cleanup import cleanup_old_sessions
 from utils.debug_handlers import setup_global_handlers
 
-# ================== ИМПОРТ USERS ==================
-from database import create_users_table
-
 # ================== НАСТРОЙКА ЛОГИРОВАНИЯ ==================
 logging.basicConfig(
     level=logging.INFO,
@@ -72,9 +69,11 @@ async def main():
         logger.info("🔄 Инициализация бота...")
 
         # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
+        # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
         try:
             from database import init_pool, create_tables, migrate_initial_data
-            from database import create_orders_tables  # импорт вверху
+            from database import create_orders_tables
+            from database.users import create_users_table  # добавить эту строку
             await init_pool()
             await create_users_table()
             await create_tables()
