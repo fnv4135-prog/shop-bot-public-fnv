@@ -87,28 +87,39 @@ async def get_user_orders(telegram_id: int):
         logger.warning(f"⚠️ Пользователь {telegram_id} не найден, нет заказов")
         return []
 
-    async with db_conn.pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT o.id, o.order_date, o.total_amount, o.status,
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'product_id', oi.product_id,
-                               'product_name', oi.product_name,
-                               'price', oi.product_price,
-                               'quantity', oi.quantity
-                           )
-                       ),
-                       '[]'::json
-                   ) as items
-            FROM orders o
-            LEFT JOIN order_items oi ON o.id = oi.order_id
-            WHERE o.user_id = $1
-            GROUP BY o.id
-            ORDER BY o.order_date DESC
-        ''', internal_user_id)
-        logger.info(f"📦 get_user_orders: найдено {len(rows)} заказов для пользователя {telegram_id}")
-        return rows
+    try:
+        async with db_conn.pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT o.id, o.order_date, o.total_amount, o.status,
+                       COALESCE(
+                           json_agg(
+                               json_build_object(
+                                   'product_id', oi.product_id,
+                                   'product_name', oi.product_name,
+                                   'price', oi.price,
+                                   'quantity', oi.quantity
+                               )
+                           ) FILTER (WHERE oi.product_id IS NOT NULL),
+                           '[]'::json
+                       ) as items
+                FROM orders o
+                LEFT JOIN order_items oi ON o.id = oi.order_id
+                WHERE o.user_id = $1
+                GROUP BY o.id
+                ORDER BY o.order_date DESC
+            ''', internal_user_id)
+
+            logger.info(f"📦 get_user_orders: найдено {len(rows)} заказов для пользователя {telegram_id}")
+            # Преобразуем в список словарей
+            result = []
+            for row in rows:
+                d = dict(row)
+                logger.debug(f"Заказ {d['id']}: items = {d['items']} (тип {type(d['items'])})")
+                result.append(d)
+            return result
+    except Exception as e:
+        logger.exception(f"🔥 Ошибка в get_user_orders для {telegram_id}: {e}")
+        return []
 
 
 async def get_all_orders_stats():
