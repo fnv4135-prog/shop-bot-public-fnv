@@ -91,14 +91,6 @@ async def show_catalog_callback(callback: types.CallbackQuery):
 
 async def show_catalog(message: types.Message):
     logger.info("=== show_catalog вызвана ===")  # для проверки логов
-    redis = await get_redis()
-    if redis:
-        await redis.set("test_key", "test_value")
-        val = await redis.get("test_key")
-        logger.info(f"✅ Тест Redis: записано и прочитано {val}")
-    else:
-        logger.warning("⚠️ Redis не доступен")
-
     keyboard, text = await get_category_keyboard()
     if keyboard:
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")

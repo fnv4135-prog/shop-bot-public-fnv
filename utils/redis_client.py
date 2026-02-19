@@ -13,9 +13,9 @@ async def get_redis():
         if not redis_url:
             logger.warning("REDIS_URL не задан, кэширование отключено")
             return None
-        logger.info("🔄 Подключаюсь к Redis...")  # ДОЛЖНО БЫТЬ
+        logger.info("🔄 Подключение к Redis...")
         _redis_client = await redis.from_url(redis_url, decode_responses=True)
-        logger.info("✅ Подключение к Redis установлено")  # ЭТО ТОЖЕ
+        logger.info("✅ Подключение к Redis установлено")
     return _redis_client
 
 async def close_redis():
