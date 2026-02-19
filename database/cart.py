@@ -80,6 +80,49 @@ async def clear_cart(telegram_id: int) -> bool:
         return False
 
 
+async def update_cart_item_quantity(telegram_id: int, product_id: int, new_quantity: int) -> bool:
+    """Обновить количество конкретного товара в корзине (если new_quantity <= 0 — удаляем)"""
+    if new_quantity <= 0:
+        return await remove_from_cart(telegram_id, product_id)
+
+    user_id = await ensure_user(telegram_id)
+    if not user_id:
+        return False
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Проверяем, есть ли такой товар в корзине
+        existing = await conn.fetchval(
+            'SELECT quantity FROM cart_items WHERE user_id = $1 AND product_id = $2',
+            user_id, product_id
+        )
+        if existing is None:
+            return False
+
+        await conn.execute(
+            'UPDATE cart_items SET quantity = $1 WHERE user_id = $2 AND product_id = $3',
+            new_quantity, user_id, product_id
+        )
+        logger.info(f"🔄 Количество товара {product_id} обновлено на {new_quantity} для пользователя {telegram_id}")
+        return True
+
+
+async def remove_from_cart(telegram_id: int, product_id: int) -> bool:
+    """Удалить товар из корзины"""
+    user_id = await ensure_user(telegram_id)
+    if not user_id:
+        return False
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM cart_items WHERE user_id = $1 AND product_id = $2',
+            user_id, product_id
+        )
+        logger.info(f"🗑 Товар {product_id} удалён из корзины пользователя {telegram_id}")
+        return True
+
+
 async def count_carts():
     pool = await get_pool()
     async with pool.acquire() as conn:

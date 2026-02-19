@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import get_cart_items, clear_cart, save_order
+from database.cart import update_cart_item_quantity, remove_from_cart
 from utils import gsheets
 from config import ADMIN_ID
 
@@ -19,7 +20,7 @@ class PromoState(StatesGroup):
 
 
 async def show_cart_handler(message: types.Message, user_id: int = None):
-    """Показать корзину пользователя"""
+    """Показать корзину пользователя с возможностью изменения количества"""
     if user_id is None:
         user_id = message.from_user.id
 
@@ -30,46 +31,50 @@ async def show_cart_handler(message: types.Message, user_id: int = None):
             [InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog")],
             [InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")]
         ])
-
+        text = "🛒 <b>Ваша корзина пуста</b>\n\nДобавьте товары из каталога!"
         if hasattr(message, 'edit_text'):
-            await message.edit_text(
-                "🛒 <b>Ваша корзина пуста</b>\n\n"
-                "Добавьте товары из каталога!",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         else:
-            await message.answer(
-                "🛒 <b>Ваша корзина пуста</b>\n\n"
-                "Добавьте товары из каталога!",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
         return
 
     total = sum(item['price'] * item['quantity'] for item in cart_items)
     total_items = sum(item['quantity'] for item in cart_items)
 
+    # Формируем текст корзины и клавиатуру с кнопками для каждого товара
     cart_text = "🛒 <b>Ваша корзина:</b>\n\n"
+    kb = []
+
     for i, item in enumerate(cart_items, 1):
-        cart_text += f"{i}. {item['name']} - {item['price']}₽ × {item['quantity']}\n"
+        cart_text += f"{i}. {item['name']} — {item['price']}₽ × {item['quantity']}\n"
+        # Кнопки управления для этого товара (в один ряд)
+        row = [
+            InlineKeyboardButton(text="−1", callback_data=f"cart_dec_{item['id']}"),
+            InlineKeyboardButton(text=f"{item['quantity']}", callback_data="ignore"),  # просто текст
+            InlineKeyboardButton(text="+1", callback_data=f"cart_inc_{item['id']}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"cart_remove_{item['id']}")
+        ]
+        kb.append(row)
 
     cart_text += f"\n<b>Товаров: {total_items}</b>\n<b>Итого: {total}₽</b>"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order")],
-        [InlineKeyboardButton(text="🎫 Ввести промокод", callback_data="enter_promo")],
-        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="ask_clear_cart")],
-        [
-            InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog"),
-            InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
-        ]
+    # Основные кнопки (оформить заказ, очистить корзину, навигация)
+    kb.append([
+        InlineKeyboardButton(text="✅ Оформить заказ", callback_data="create_order"),
+        InlineKeyboardButton(text="🗑 Очистить всё", callback_data="ask_clear_cart")
+    ])
+    kb.append([
+        InlineKeyboardButton(text="🛍 В каталог", callback_data="show_catalog"),
+        InlineKeyboardButton(text="🏠 Главная", callback_data="go_home")
     ])
 
+    # Добавляем заглушку для кнопки "ignore", чтобы она ничего не делала
+    # Нужно добавить обработчик для "ignore"
+
     if hasattr(message, 'edit_text'):
-        await message.edit_text(cart_text, reply_markup=keyboard, parse_mode="HTML")
+        await message.edit_text(cart_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
     else:
-        await message.answer(cart_text, reply_markup=keyboard, parse_mode="HTML")
+        await message.answer(cart_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
 
 @router.message(Command("cart"))
@@ -345,3 +350,63 @@ async def process_promo(message: types.Message, state: FSMContext):
     ])
     await message.answer(cart_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(None)
+
+
+@router.callback_query(lambda c: c.data == "ignore")
+async def ignore_callback(callback: types.CallbackQuery):
+    """Заглушка для кнопок, которые ничего не делают"""
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith("cart_inc_"))
+async def cart_increase(callback: types.CallbackQuery):
+    product_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    # Получаем текущее количество
+    cart_items = await get_cart_items(user_id)
+    item = next((i for i in cart_items if i['id'] == product_id), None)
+    if not item:
+        await callback.answer("Товар не найден в корзине", show_alert=True)
+        return
+
+    new_qty = item['quantity'] + 1
+    success = await update_cart_item_quantity(user_id, product_id, new_qty)
+    if success:
+        await show_cart_handler(callback.message, user_id)
+    else:
+        await callback.answer("Ошибка при изменении количества", show_alert=True)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith("cart_dec_"))
+async def cart_decrease(callback: types.CallbackQuery):
+    product_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    cart_items = await get_cart_items(user_id)
+    item = next((i for i in cart_items if i['id'] == product_id), None)
+    if not item:
+        await callback.answer("Товар не найден в корзине", show_alert=True)
+        return
+
+    new_qty = item['quantity'] - 1
+    success = await update_cart_item_quantity(user_id, product_id, new_qty)
+    if success:
+        await show_cart_handler(callback.message, user_id)
+    else:
+        await callback.answer("Ошибка при изменении количества", show_alert=True)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith("cart_remove_"))
+async def cart_remove(callback: types.CallbackQuery):
+    product_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    success = await remove_from_cart(user_id, product_id)
+    if success:
+        await show_cart_handler(callback.message, user_id)
+    else:
+        await callback.answer("Ошибка при удалении товара", show_alert=True)
+    await callback.answer()
