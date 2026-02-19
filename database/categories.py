@@ -10,19 +10,17 @@ logger = logging.getLogger(__name__)
 
 
 async def get_category_tree(parent_id: int = None, include_inactive: bool = False):
-    """
-    Возвращает дерево категорий с кэшированием в Redis.
-    """
-    # Пробуем взять из кэша
+    logger.info(f"get_category_tree вызвана с parent_id={parent_id}")
+
     redis_client = await get_redis()
     cache_key = f"cat_tree:{parent_id}:{include_inactive}"
     if redis_client:
         cached = await redis_client.get(cache_key)
         if cached:
-            logger.debug(f"✅ Загружено из кэша: {cache_key}")
+            logger.info(f"✅ Загружено из кэша: {cache_key}")
             return json.loads(cached)
 
-    # Если в кэше нет, идём в БД
+    # Если кэша нет – идём в БД
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
@@ -42,10 +40,9 @@ async def get_category_tree(parent_id: int = None, include_inactive: bool = Fals
         else:
             result = [dict(row) for row in rows]
 
-    # Сохраняем в кэш на 1 час (3600 секунд)
     if redis_client:
         await redis_client.setex(cache_key, 3600, json.dumps(result, default=str))
-        logger.debug(f"💾 Сохранено в кэш: {cache_key}")
+        logger.info(f"💾 Сохранено в кэш: {cache_key}")
 
     return result
 

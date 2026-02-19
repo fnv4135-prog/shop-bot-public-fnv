@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramBadRequest
 from database import get_products_by_category, add_to_cart, get_product_by_id
 from database.categories import get_category_tree, get_category_children, get_category_name, get_category_parent
+from utils.redis_client import get_redis
 router = Router()
 logger = logging.getLogger(__name__)
 
@@ -89,13 +90,15 @@ async def show_catalog_callback(callback: types.CallbackQuery):
 
 
 async def show_catalog(message: types.Message):
-    """Показать корневые категории"""
-    from utils.redis_client import get_redis
+    logger.info("=== show_catalog вызвана ===")  # для проверки логов
     redis = await get_redis()
     if redis:
         await redis.set("test_key", "test_value")
         val = await redis.get("test_key")
-        logger.info(f"Тест Redis: записано и прочитано {val}")
+        logger.info(f"✅ Тест Redis: записано и прочитано {val}")
+    else:
+        logger.warning("⚠️ Redis не доступен")
+
     keyboard, text = await get_category_keyboard()
     if keyboard:
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
