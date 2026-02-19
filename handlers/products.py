@@ -147,6 +147,48 @@ async def show_product_detail(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(lambda c: c.data.startswith("product_"))
+async def show_product_detail(callback: types.CallbackQuery):
+    """Показать детали товара и кнопку добавления в корзину"""
+    product_id = int(callback.data.split("_")[1])
+    logger.info(f"🔍 show_product_detail вызван с data={callback.data}")
+
+    product = await get_product_by_id(product_id)
+
+    if not product:
+        await callback.answer("Товар не найден", show_alert=True)
+        return
+
+    # Создаём клавиатуру
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ Добавить в корзину",
+                                 callback_data=f"add_to_cart_{product_id}"),
+            InlineKeyboardButton(text="🛒 Моя корзина",
+                                 callback_data="view_cart")
+        ],
+        [InlineKeyboardButton(text="🔙 Назад к товарам",
+                              callback_data=f"cat_products_{product['category_id']}")]
+    ])
+
+    description = product.get('description', "Описание отсутствует")
+    try:
+        await callback.message.edit_text(
+            f"📱 <b>{product['name']}</b>\n\n"
+            f"📝 <b>Описание:</b> {description}\n"
+            f"💰 <b>Цена:</b> {product['price']} руб.\n\n"
+            f"🛒 <i>Добавьте товар в корзину:</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            logger.debug("show_product_detail: сообщение не изменилось")
+        else:
+            raise
+    await callback.answer()
+
+
 @router.callback_query(lambda c: c.data.startswith("add_to_cart_"))
 async def add_to_cart_handler(callback: types.CallbackQuery):
     """Добавление товара в корзину"""
@@ -176,12 +218,18 @@ async def add_to_cart_handler(callback: types.CallbackQuery):
             ]
         ])
 
-        await callback.message.edit_text(
-            "✅ <b>Товар успешно добавлен в корзину!</b>\n\n"
-            "Что вы хотите сделать дальше?",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            await callback.message.edit_text(
+                "✅ <b>Товар успешно добавлен в корзину!</b>\n\n"
+                "Что вы хотите сделать дальше?",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                logger.debug("add_to_cart: сообщение не изменилось")
+            else:
+                raise
         await callback.answer("Товар добавлен в корзину!")
 
     except Exception as e:
