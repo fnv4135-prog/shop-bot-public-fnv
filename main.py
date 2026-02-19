@@ -129,6 +129,7 @@ async def main():
         # ================== ГЛАВНОЕ МЕНЮ ==================
         @dp.message(Command("start", "help", "menu"))
         async def unified_menu_handler(message: types.Message):
+            raise Exception("🔥 Тест middleware: ошибка в /start")
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
