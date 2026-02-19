@@ -92,6 +92,28 @@ async def main():
         bot = Bot(token=bot_token)
         dp = Dispatcher(storage=MemoryStorage())
 
+        from aiogram import BaseMiddleware
+        from aiogram.types import Update
+        from utils.notify import notify_admin
+        import traceback
+
+        class ErrorHandlingMiddleware(BaseMiddleware):
+            async def __call__(self, handler, event: Update, data: dict):
+                try:
+                    return await handler(event, data)
+                except Exception as e:
+                    # Логируем ошибку
+                    logger.exception("🔥 Необработанное исключение в обработчике")
+                    # Отправляем админу
+                    bot = data['bot']
+                    tb = traceback.format_exc()
+                    text = f"❌ <b>Ошибка в боте:</b>\n\n<code>{tb[:3500]}</code>"
+                    await notify_admin(bot, text)
+                    # Пробрасываем исключение дальше, чтобы бот не завис
+                    raise
+
+        dp.update.middleware(ErrorHandlingMiddleware())
+
         dp.shutdown.register(on_shutdown)
 
         dp.include_router(products_router)  # товары и категории
@@ -191,8 +213,13 @@ async def main():
         logger.info("⏳ Запуск polling...")
         await dp.start_polling(bot)
 
+
+
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
+        if 'bot' in locals():
+            tb = traceback.format_exc()
+            await notify_admin(bot, f"❌ <b>Ошибка запуска бота:</b>\n\n<code>{tb[:3500]}</code>")
         raise
 
 
