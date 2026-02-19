@@ -349,6 +349,87 @@ async def admin_stats(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data == CALLBACK_ORDERS)
+async def admin_orders_list(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещён", show_alert=True)
+        return
+
+    from database.orders import get_all_orders
+    orders = await get_all_orders(limit=30)
+
+    if not orders:
+        await callback.message.edit_text("📦 Заказов пока нет.")
+        return
+
+    text = "📦 **Последние заказы:**\n\n"
+    kb = []
+    for o in orders:
+        date = o['order_date'].strftime('%d.%m %H:%M')
+        text += f"• #{o['id']} от {date} — {o['total_amount']}₽, статус: {o['status']}\n"
+        # Добавляем кнопку для просмотра деталей
+        kb.append([InlineKeyboardButton(
+            text=f"Заказ #{o['id']} ({o['status']})",
+            callback_data=f"{CALLBACK_ORDER_DETAIL}{o['id']}"
+        )])
+    kb.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")])
+
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_ORDER_DETAIL))
+async def admin_order_detail(callback: types.CallbackQuery):
+    order_id = int(callback.data.split("_")[-1])
+
+    # Получим детали заказа (можно написать отдельную функцию, но для простоты используем get_all_orders с фильтром)
+    from database.orders import get_all_orders, update_order_status
+    orders = await get_all_orders(limit=100)
+    order = next((o for o in orders if o['id'] == order_id), None)
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    text = (
+        f"📦 **Заказ #{order['id']}**\n"
+        f"📅 Дата: {order['order_date'].strftime('%d.%m.%Y %H:%M')}\n"
+        f"👤 Пользователь: @{order['username']} (ID: {order['telegram_id']})\n"
+        f"💰 Сумма: {order['total_amount']}₽\n"
+        f"📊 Статус: {order['status']}\n\n"
+        "Выберите новый статус:"
+    )
+
+    # Кнопки для изменения статуса
+    statuses = ["новый", "в обработке", "выполнен", "отменён"]
+    kb = []
+    for s in statuses:
+        kb.append([InlineKeyboardButton(
+            text=f"✅ {s}" if s == order['status'] else s,
+            callback_data=f"{CALLBACK_ORDER_STATUS}{order_id}_{s}"
+        )])
+    kb.append([InlineKeyboardButton(text="🔙 Назад к списку", callback_data=CALLBACK_ORDERS)])
+
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith(CALLBACK_ORDER_STATUS))
+async def admin_order_status_change(callback: types.CallbackQuery):
+    data = callback.data.split("_")
+    order_id = int(data[-2])
+    new_status = data[-1]
+
+    from database.orders import update_order_status
+    success = await update_order_status(order_id, new_status)
+    if success:
+        await callback.answer(f"Статус изменён на {new_status}", show_alert=False)
+        # Вернуться к деталям заказа
+        # Для простоты обновим сообщение
+        await admin_order_detail(callback)
+    else:
+        await callback.answer("Ошибка при изменении статуса", show_alert=True)
+
+
 @router.callback_query(F.data == CALLBACK_CATEGORIES)
 async def admin_categories(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -948,95 +1029,17 @@ async def add_promo_max(message: types.Message, state: FSMContext):
     await message.answer("Что дальше?", reply_markup=kb)
 
 
-@router.callback_query(F.data == CALLBACK_ORDERS)
-async def admin_orders_list(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Доступ запрещён", show_alert=True)
-        return
-
-    from database.orders import get_all_orders
-    orders = await get_all_orders(limit=30)
-
-    if not orders:
-        await callback.message.edit_text("📦 Заказов пока нет.")
-        return
-
-    text = "📦 **Последние заказы:**\n\n"
-    kb = []
-    for o in orders:
-        date = o['order_date'].strftime('%d.%m %H:%M')
-        text += f"• #{o['id']} от {date} — {o['total_amount']}₽, статус: {o['status']}\n"
-        # Добавляем кнопку для просмотра деталей
-        kb.append([InlineKeyboardButton(
-            text=f"Заказ #{o['id']} ({o['status']})",
-            callback_data=f"{CALLBACK_ORDER_DETAIL}{o['id']}"
-        )])
-    kb.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data="admin_back")])
-
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="Markdown")
-    await callback.answer()
-
-
-@router.callback_query(lambda c: c.data.startswith(CALLBACK_ORDER_DETAIL))
-async def admin_order_detail(callback: types.CallbackQuery):
-    order_id = int(callback.data.split("_")[-1])
-
-    # Получим детали заказа (можно написать отдельную функцию, но для простоты используем get_all_orders с фильтром)
-    from database.orders import get_all_orders, update_order_status
-    orders = await get_all_orders(limit=100)
-    order = next((o for o in orders if o['id'] == order_id), None)
-    if not order:
-        await callback.answer("Заказ не найден", show_alert=True)
-        return
-
-    text = (
-        f"📦 **Заказ #{order['id']}**\n"
-        f"📅 Дата: {order['order_date'].strftime('%d.%m.%Y %H:%M')}\n"
-        f"👤 Пользователь: @{order['username']} (ID: {order['telegram_id']})\n"
-        f"💰 Сумма: {order['total_amount']}₽\n"
-        f"📊 Статус: {order['status']}\n\n"
-        "Выберите новый статус:"
-    )
-
-    # Кнопки для изменения статуса
-    statuses = ["новый", "в обработке", "выполнен", "отменён"]
-    kb = []
-    for s in statuses:
-        kb.append([InlineKeyboardButton(
-            text=f"✅ {s}" if s == order['status'] else s,
-            callback_data=f"{CALLBACK_ORDER_STATUS}{order_id}_{s}"
-        )])
-    kb.append([InlineKeyboardButton(text="🔙 Назад к списку", callback_data=CALLBACK_ORDERS)])
-
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-    await callback.answer()
-
-
-@router.callback_query(lambda c: c.data.startswith(CALLBACK_ORDER_STATUS))
-async def admin_order_status_change(callback: types.CallbackQuery):
-    data = callback.data.split("_")
-    order_id = int(data[-2])
-    new_status = data[-1]
-
-    from database.orders import update_order_status
-    success = await update_order_status(order_id, new_status)
-    if success:
-        await callback.answer(f"Статус изменён на {new_status}", show_alert=False)
-        # Вернуться к деталям заказа
-        # Для простоты обновим сообщение
-        await admin_order_detail(callback)
-    else:
-        await callback.answer("Ошибка при изменении статуса", show_alert=True)
-
-
 @router.callback_query(F.data == "admin_back")
 async def admin_back(callback: types.CallbackQuery):
     """Возврат в главное меню админки"""
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product")],
         [types.InlineKeyboardButton(text="📝 Управление товарами", callback_data="admin_manage_products")],
-        [types.InlineKeyboardButton(text="📂 Управление категориями", callback_data="admin_categories")],
         [types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [types.InlineKeyboardButton(text="📦 Управление заказами", callback_data=CALLBACK_ORDERS)],
+        [types.InlineKeyboardButton(text="📂 Управление категориями", callback_data=CALLBACK_CATEGORIES)],
+        [types.InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [types.InlineKeyboardButton(text="🎫 Управление промокодами", callback_data=CALLBACK_PROMO)],
         [types.InlineKeyboardButton(text="🏠 В главное меню", callback_data="go_home")]
     ])
 
