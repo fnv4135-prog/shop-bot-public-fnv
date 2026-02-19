@@ -11,10 +11,11 @@ logger = logging.getLogger(__name__)
 
 async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> bool:
     try:
-        # Получаем внутренний id пользователя
+        logger.info(f"add_to_cart: telegram_id={telegram_id}, product_id={product_id}")
         user_id = await ensure_user(telegram_id)
+        logger.info(f"add_to_cart: user_id={user_id}")
         if not user_id:
-            logger.error(f"❌ Не удалось получить внутренний id для пользователя {telegram_id}")
+            logger.error("user_id is None")
             return False
 
         pool = await get_pool()
@@ -26,6 +27,7 @@ async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> b
                 DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity
             """, user_id, product_id, quantity)
 
+            logger.info(f"add_to_cart: запрос выполнен, товар добавлен")
             logger.info(f"🛒 Товар {product_id} добавлен в корзину пользователя {telegram_id} (user_id={user_id})")
             return True
 
@@ -36,20 +38,20 @@ async def add_to_cart(telegram_id: int, product_id: int, quantity: int = 1) -> b
 
 async def get_cart_items(telegram_id: int):
     try:
+        logger.info(f"get_cart_items: telegram_id={telegram_id}")
         user_id = await ensure_user(telegram_id)
+        logger.info(f"get_cart_items: user_id={user_id}")
         if not user_id:
             return []
-
         pool = await get_pool()
         async with pool.acquire() as conn:
             items = await conn.fetch("""
-                SELECT p.id, p.name, p.price, ci.quantity
-                FROM cart_items ci
-                JOIN products p ON ci.product_id = p.id
-                WHERE ci.user_id = $1
-                ORDER BY ci.added_at
-            """, user_id)
-
+                    SELECT p.id, p.name, p.price, ci.quantity
+                    FROM cart_items ci
+                    JOIN products p ON ci.product_id = p.id
+                    WHERE ci.user_id = $1
+                """, user_id)
+            logger.info(f"get_cart_items: найдено {len(items)} товаров")
             return [dict(item) for item in items]
 
     except Exception as e:

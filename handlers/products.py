@@ -199,11 +199,14 @@ async def show_product_detail(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data.startswith("add_to_cart_"))
 async def add_to_cart_handler(callback: types.CallbackQuery):
-    """Добавление товара в корзину"""
     product_id = int(callback.data.split("_")[3])
 
     try:
-        await add_to_cart(callback.from_user.id, product_id, 1)
+        # ВАЖНО: проверяем результат добавления
+        success = await add_to_cart(callback.from_user.id, product_id, 1)
+        if not success:
+            await callback.answer("❌ Не удалось добавить товар в корзину", show_alert=True)
+            return
 
         product = await get_product_by_id(product_id)
         product_name = product['name'] if product else f"Товар {product_id}"
