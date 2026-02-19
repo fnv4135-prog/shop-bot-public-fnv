@@ -193,7 +193,7 @@ async def show_product_detail(callback: types.CallbackQuery):
         if "message is not modified" in str(e):
             logger.debug("show_product_detail: сообщение не изменилось")
         else:
-            raise Exception("🔥 Тестовая ошибка")
+            raise
     await callback.answer()
 
 
