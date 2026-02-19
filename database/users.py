@@ -28,18 +28,50 @@ async def create_users_table():
 
 
 async def ensure_user(telegram_id: int, username: str = "", first_name: str = "", last_name: str = "") -> int:
-    # ... (оставь без изменений, у тебя он уже есть)
-    pass
+    """Гарантирует наличие пользователя в таблице users, возвращает его внутренний id"""
+    logger.info(f"👤 ensure_user: telegram_id={telegram_id}, username={username}")
+
+    if db_conn.pool is None:
+        logger.error("❌ ensure_user: пул соединений не инициализирован")
+        return None
+
+    async with db_conn.pool.acquire() as conn:
+        # Пробуем найти
+        row = await conn.fetchrow(
+            "SELECT id FROM users WHERE telegram_id = $1",
+            telegram_id
+        )
+        if row:
+            user_id = row['id']
+            logger.info(f"👤 ensure_user: найден существующий пользователь, id={user_id}")
+            # Обновляем данные (username, full_name, last_seen)
+            full = f"{first_name} {last_name}".strip()
+            await conn.execute(
+                "UPDATE users SET username = COALESCE($2, username), full_name = COALESCE($3, full_name), last_seen = NOW() WHERE id = $1",
+                user_id, username, full
+            )
+            return user_id
+        else:
+            # Создаём нового пользователя
+            full = f"{first_name} {last_name}".strip()
+            row = await conn.fetchrow(
+                "INSERT INTO users (telegram_id, username, full_name) VALUES ($1, $2, $3) RETURNING id",
+                telegram_id, username, full
+            )
+            user_id = row['id']
+            logger.info(f"👤 ensure_user: создан новый пользователь, id={user_id}")
+            return user_id
 
 
 async def get_user_internal_id(telegram_id: int, username: str = "", first_name: str = "", last_name: str = "") -> int:
+    """Получить внутренний id пользователя по telegram_id (с созданием при необходимости)"""
     return await ensure_user(telegram_id, username, first_name, last_name)
 
 
 async def get_all_users():
     """Возвращает список всех пользователей (их telegram_id)"""
     if db_conn.pool is None:
-        logger.error("❌ Пул соединений не инициализирован! Не могу получить пользователей.")
+        logger.error("❌ get_all_users: пул соединений не инициализирован")
         return []
     async with db_conn.pool.acquire() as conn:
         rows = await conn.fetch('SELECT telegram_id FROM users')
