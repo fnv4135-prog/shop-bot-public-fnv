@@ -96,7 +96,7 @@ async def get_user_orders(telegram_id: int):
                                json_build_object(
                                    'product_id', oi.product_id,
                                    'product_name', oi.product_name,
-                                   'price', oi.price,
+                                   'price', oi.product_price,
                                    'quantity', oi.quantity
                                )
                            ) FILTER (WHERE oi.product_id IS NOT NULL),
@@ -110,13 +110,7 @@ async def get_user_orders(telegram_id: int):
             ''', internal_user_id)
 
             logger.info(f"📦 get_user_orders: найдено {len(rows)} заказов для пользователя {telegram_id}")
-            # Преобразуем в список словарей
-            result = []
-            for row in rows:
-                d = dict(row)
-                logger.debug(f"Заказ {d['id']}: items = {d['items']} (тип {type(d['items'])})")
-                result.append(d)
-            return result
+            return [dict(row) for row in rows]
     except Exception as e:
         logger.exception(f"🔥 Ошибка в get_user_orders для {telegram_id}: {e}")
         return []
