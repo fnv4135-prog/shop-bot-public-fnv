@@ -128,3 +128,40 @@ async def get_all_orders_stats():
             "completed_orders": completed,
             "new_orders": new
         }
+
+
+async def get_all_orders(limit: int = 50, status: str = None):
+    """Получить все заказы для админки (с фильтром по статусу)"""
+    if db_conn.pool is None:
+        return []
+    async with db_conn.pool.acquire() as conn:
+        if status:
+            rows = await conn.fetch('''
+                SELECT o.id, o.order_date, o.total_amount, o.status, u.telegram_id, u.username
+                FROM orders o
+                JOIN users u ON o.user_id = u.id
+                WHERE o.status = $1
+                ORDER BY o.order_date DESC
+                LIMIT $2
+            ''', status, limit)
+        else:
+            rows = await conn.fetch('''
+                SELECT o.id, o.order_date, o.total_amount, o.status, u.telegram_id, u.username
+                FROM orders o
+                JOIN users u ON o.user_id = u.id
+                ORDER BY o.order_date DESC
+                LIMIT $1
+            ''', limit)
+        return [dict(row) for row in rows]
+
+
+async def update_order_status(order_id: int, new_status: str) -> bool:
+    """Обновить статус заказа"""
+    if db_conn.pool is None:
+        return False
+    async with db_conn.pool.acquire() as conn:
+        result = await conn.execute('''
+            UPDATE orders SET status = $1, updated_at = NOW()
+            WHERE id = $2
+        ''', new_status, order_id)
+        return result == "UPDATE 1"
