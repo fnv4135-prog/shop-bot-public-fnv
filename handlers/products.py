@@ -194,7 +194,7 @@ async def show_product_detail(callback: types.CallbackQuery):
             logger.debug("show_product_detail: сообщение не изменилось")
         else:
             # Временная проверка уведомлений
-            raise Exception("🔥 Тестовая ошибка из products.py")
+            raise
     await callback.answer()
 
 
