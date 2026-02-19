@@ -155,3 +155,11 @@ async def delete_category(category_id: int) -> bool:
         await conn.execute('DELETE FROM categories WHERE id = $1', category_id)
         logger.info(f"📁 Удалена категория id={category_id}")
         return True
+
+
+async def get_category_parent(category_id: int) -> int | None:
+    """Возвращает ID родительской категории или None, если категория корневая"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        parent_id = await conn.fetchval('SELECT parent_id FROM categories WHERE id = $1', category_id)
+        return parent_id

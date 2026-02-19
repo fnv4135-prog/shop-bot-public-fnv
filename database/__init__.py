@@ -7,7 +7,7 @@ from .users import create_users_table, ensure_user, get_user_internal_id, get_al
 from .categories import (
     get_category_tree, get_category_children, get_products_by_category, get_category_name,
     get_all_categories_flat, has_products, has_subcategories,
-    create_category, update_category, delete_category
+    create_category, update_category, delete_category, get_category_parent
 )
 from datetime import datetime
 from database.connection import get_pool
@@ -20,5 +20,5 @@ __all__ = [
     'create_users_table', 'ensure_user', 'get_user_internal_id', 'get_all_users',
     'get_category_tree', 'get_category_children', 'get_products_by_category', 'get_category_name',
     'get_all_categories_flat', 'has_products', 'has_subcategories',
-    'create_category', 'update_category', 'delete_category'
+    'create_category', 'update_category', 'delete_category', 'get_category_parent'
 ]

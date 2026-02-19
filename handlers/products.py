@@ -7,24 +7,32 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramBadRequest
 from database import get_products_by_category, add_to_cart, get_product_by_id
-from database.categories import get_category_tree, get_category_children, get_category_name
-
+from database.categories import get_category_tree, get_category_children, get_category_name, get_category_parent
 router = Router()
 logger = logging.getLogger(__name__)
 
 
 async def get_products_keyboard(category_id: int):
-    """Возвращает клавиатуру со списком товаров в категории и текст"""
+    """Возвращает клавиатуру со списком товаров в категории, кнопка 'Назад' ведёт в родительскую категорию"""
     products = await get_products_by_category(category_id, include_inactive=False)
     if not products:
         return None, "🛒 В этой категории пока нет товаров"
+
+    # Определяем, куда вести кнопку "Назад"
+    from database.categories import get_category_parent  # импорт внутри функции, чтобы избежать циклических импортов
+    parent_id = await get_category_parent(category_id)
+    if parent_id:
+        back_callback = f"cat_{parent_id}"
+    else:
+        back_callback = "show_catalog"  # если корневая категория, то в главное меню каталога
+
     kb = []
     for p in products:
         kb.append([InlineKeyboardButton(
             text=f"{p['name']} - {p['price']}₽",
             callback_data=f"product_{p['id']}"
         )])
-    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category_id}")])
+    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=kb), f"🛒 Товары в категории:"
 
 
