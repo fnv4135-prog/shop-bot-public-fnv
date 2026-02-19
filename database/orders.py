@@ -165,3 +165,14 @@ async def update_order_status(order_id: int, new_status: str) -> bool:
             WHERE id = $2
         ''', new_status, order_id)
         return result == "UPDATE 1"
+
+
+async def get_order_items_by_order_id(order_id: int):
+    """Получить позиции заказа для повтора"""
+    if db_conn.pool is None:
+        return []
+    async with db_conn.pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT product_id, quantity FROM order_items WHERE order_id = $1
+        ''', order_id)
+        return [dict(row) for row in rows]
