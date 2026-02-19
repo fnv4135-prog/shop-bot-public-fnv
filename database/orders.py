@@ -90,7 +90,7 @@ async def get_user_orders(telegram_id: int):
     try:
         async with db_conn.pool.acquire() as conn:
             rows = await conn.fetch('''
-                SELECT o.id, o.order_date, o.total_amount, o.status,
+                SELECT o.id, o.created_at as order_date, o.total_amount, o.status,
                        COALESCE(
                            json_agg(
                                json_build_object(
@@ -106,7 +106,7 @@ async def get_user_orders(telegram_id: int):
                 LEFT JOIN order_items oi ON o.id = oi.order_id
                 WHERE o.user_id = $1
                 GROUP BY o.id
-                ORDER BY o.order_date DESC
+                ORDER BY o.created_at DESC
             ''', internal_user_id)
 
             logger.info(f"📦 get_user_orders: найдено {len(rows)} заказов для пользователя {telegram_id}")
@@ -143,21 +143,21 @@ async def get_all_orders(limit: int = 50, status: str = None):
         try:
             if status:
                 rows = await conn.fetch('''
-                    SELECT o.id, o.order_date, o.total_amount, o.status, 
+                    SELECT o.id, o.created_at as order_date, o.total_amount, o.status, 
                            u.telegram_id, u.username
                     FROM orders o
                     JOIN users u ON o.user_id = u.id
                     WHERE o.status = $1
-                    ORDER BY o.order_date DESC
+                    ORDER BY o.created_at DESC
                     LIMIT $2
                 ''', status, limit)
             else:
                 rows = await conn.fetch('''
-                    SELECT o.id, o.order_date, o.total_amount, o.status, 
+                    SELECT o.id, o.created_at as order_date, o.total_amount, o.status, 
                            u.telegram_id, u.username
                     FROM orders o
                     JOIN users u ON o.user_id = u.id
-                    ORDER BY o.order_date DESC
+                    ORDER BY o.created_at DESC
                     LIMIT $1
                 ''', limit)
             logger.info(f"get_all_orders: найдено {len(rows)} заказов")
