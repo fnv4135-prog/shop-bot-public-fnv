@@ -4,15 +4,20 @@ import logging
 import os
 import sys
 import socket
+import traceback
 from dotenv import load_dotenv
-import config
-from utils import gsheets
 
 load_dotenv()
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import BaseMiddleware
+from aiogram.types import Update
+
+import config
+from utils import gsheets
+from utils.notify import notify_admin
 
 # ================== ИМПОРТ РОУТЕРОВ ==================
 from handlers.admin import router as admin_router
@@ -25,6 +30,11 @@ from handlers.search import router as search_router
 from utils.http_server import run_http_server
 from utils.cleanup import cleanup_old_sessions
 from utils.debug_handlers import setup_global_handlers
+
+# ================== ИМПОРТ ФУНКЦИЙ БАЗЫ ДАННЫХ ==================
+from database import init_pool, close_pool, create_tables, migrate_initial_data
+from database import create_orders_tables
+from database.users import create_users_table
 
 # ================== НАСТРОЙКА ЛОГИРОВАНИЯ ==================
 logging.basicConfig(
@@ -52,11 +62,24 @@ def check_single_instance():
 async def on_shutdown():
     logger.info("🔄 Завершение работы бота...")
     try:
-        from database import close_pool
         await close_pool()
         logger.info("📴 Подключение к БД закрыто")
     except Exception as e:
         logger.error(f"Ошибка при закрытии БД: {e}")
+
+
+# ================== MIDDLEWARE ДЛЯ ОБРАБОТКИ ОШИБОК ==================
+class ErrorHandlingMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: Update, data: dict):
+        try:
+            return await handler(event, data)
+        except Exception as e:
+            logger.exception("🔥 Необработанное исключение в обработчике")
+            bot = data['bot']
+            tb = traceback.format_exc()
+            text = f"❌ <b>Ошибка в боте:</b>\n\n<code>{tb[:3500]}</code>"
+            await notify_admin(bot, text)
+            raise
 
 
 async def main():
@@ -68,12 +91,8 @@ async def main():
 
         logger.info("🔄 Инициализация бота...")
 
-        # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
-        # ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ
+        # ========== ПОДКЛЮЧАЕМ БАЗУ ДАННЫХ ==========
         try:
-            from database import init_pool, create_tables, migrate_initial_data
-            from database import create_orders_tables
-            from database.users import create_users_table  # добавить эту строку
             await init_pool()
             await create_users_table()
             await create_tables()
@@ -84,42 +103,22 @@ async def main():
             logger.error(f"❌ Ошибка инициализации БД: {e}")
             raise
 
-
         await cleanup_old_sessions(bot_token)
         await asyncio.sleep(1)
 
         bot = Bot(token=bot_token)
         dp = Dispatcher(storage=MemoryStorage())
 
-        from aiogram import BaseMiddleware
-        from aiogram.types import Update
-        from utils.notify import notify_admin
-        import traceback
-
-        class ErrorHandlingMiddleware(BaseMiddleware):
-            async def __call__(self, handler, event: Update, data: dict):
-                try:
-                    return await handler(event, data)
-                except Exception as e:
-                    # Логируем ошибку
-                    logger.exception("🔥 Необработанное исключение в обработчике")
-                    # Отправляем админу
-                    bot = data['bot']
-                    tb = traceback.format_exc()
-                    text = f"❌ <b>Ошибка в боте:</b>\n\n<code>{tb[:3500]}</code>"
-                    await notify_admin(bot, text)
-                    # Пробрасываем исключение дальше, чтобы бот не завис
-                    raise
-
+        # Подключаем middleware
         dp.update.middleware(ErrorHandlingMiddleware())
-
         dp.shutdown.register(on_shutdown)
 
-        dp.include_router(products_router)  # товары и категории
-        dp.include_router(cart_router)  # корзина
-        dp.include_router(order_router)  # заказы
-        dp.include_router(search_router)  # поиск (после основных)
-        dp.include_router(admin_router)  # админка (в конце)
+        # Подключаем роутеры
+        dp.include_router(products_router)
+        dp.include_router(cart_router)
+        dp.include_router(order_router)
+        dp.include_router(search_router)
+        dp.include_router(admin_router)
 
         await setup_global_handlers(dp)
 
@@ -127,13 +126,13 @@ async def main():
         if config.GOOGLE_SHEETS_ENABLED:
             asyncio.create_task(gsheets.init_google_sheets())
 
-        # ================== ГЛАВНОЕ МЕНЮ НА КНОПКАХ ==================
+        # ================== ГЛАВНОЕ МЕНЮ ==================
         @dp.message(Command("start", "help", "menu"))
         async def unified_menu_handler(message: types.Message):
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
-                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],  # две кнопки в ряду
+                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],
                 [types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
@@ -159,7 +158,7 @@ async def main():
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🛒 Каталог товаров", callback_data="show_catalog")],
                 [types.InlineKeyboardButton(text="📦 Моя корзина", callback_data="view_cart"),
-                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],  # две кнопки в ряду
+                 types.InlineKeyboardButton(text="🔍 Поиск товаров", callback_data="search")],
                 [types.InlineKeyboardButton(text="📝 Мои заказы", callback_data="my_orders")],
                 [types.InlineKeyboardButton(text="❓ Помощь / О нас", callback_data="help_info")]
             ])
@@ -201,8 +200,7 @@ async def main():
             await callback.answer()
             logger.info(f"❓ Пользователь {callback.from_user.id} открыл раздел помощи")
 
-
-        # ================== ЗАПУСК И ПРОВЕРКИ ==================
+        # ================== ЗАПУСК ==================
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
 
@@ -211,8 +209,6 @@ async def main():
 
         logger.info("⏳ Запуск polling...")
         await dp.start_polling(bot)
-
-
 
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
@@ -227,7 +223,6 @@ if __name__ == '__main__':
         sys.exit(1)
 
     is_render = os.environ.get('ON_RENDER', '').lower() == 'true'
-
     if is_render:
         logger.info("🌐 Запуск на Render")
         import threading
